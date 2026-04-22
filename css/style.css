@@ -1,0 +1,225 @@
+/* =========================================
+   VARIABILI E RESET
+   ========================================= */
+:root {
+    --bitcoin-orange: #f7931a;
+    --bitcoin-dark: #e67e22;
+    --outlier-red: #ff4444;
+    --normal-green: #2ecc71;
+    --highlight-yellow: #f1c40f;
+    --bg-surface: #f0f2f5;
+    --text-main: #2f3542;
+    --text-muted: #7f8c8d;
+    --shadow: 0 4px 15px rgba(0,0,0,0.08);
+}
+
+body, html {
+    margin: 0;
+    padding: 0;
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-surface);
+    color: var(--text-main);
+}
+
+/* =========================================
+   LAYOUT PRINCIPALE
+   ========================================= */
+.dashboard {
+    display: flex;
+    flex-direction: row;
+    gap: 20px;
+    padding: 20px;
+    height: calc(100vh - 80px); 
+}
+
+/* Sidebar */
+.sidebar {
+    width: 280px;
+    min-width: 280px;
+    background-color: white;
+    padding: 25px;
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* Area Grafico */
+#viz-container {
+    flex-grow: 1;
+    background-color: white;
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    position: relative;
+}
+
+.svg-container {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+}
+
+.svg-container:active {
+    cursor: grabbing;
+}
+
+/* =========================================
+   CONTROLLI E FILTRI
+   ========================================= */
+#controls {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+/* Bottone Switch Grafico (Primario) */
+.btn-primary {
+    background-color: var(--bitcoin-orange);
+    color: white;
+    border: none;
+    padding: 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background 0.2s, transform 0.1s;
+}
+
+.btn-primary:hover {
+    background-color: var(--bitcoin-dark);
+}
+
+.btn-primary:active {
+    transform: scale(0.98);
+}
+
+/* Menu a tendina giorni */
+.day-selector {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: white;
+    font-size: 14px;
+    color: var(--text-main);
+    outline: none;
+}
+
+/* Contenitore filtri dinamici (FilterManager) */
+#filter-controls-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 5px;
+    padding-top: 15px;
+    border-top: 1px solid #f1f1f1;
+}
+
+/* Bottone Filtro (Secondario) */
+.btn-secondary {
+    background-color: #f1f2f6;
+    color: var(--text-main);
+    border: 1px solid #ced4da;
+    padding: 12px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+    background-color: #dfe4ea;
+}
+
+.btn-secondary.active {
+    background-color: var(--text-main);
+    color: white;
+    border-color: var(--text-main);
+}
+
+/* =========================================
+   ELEMENTI DEL GRAFICO (DOTS & LINKS)
+   ========================================= */
+
+/* Linee verticali */
+.internal-link {
+    stroke: #95a5a6;
+    stroke-width: 1.5;
+    stroke-dasharray: 4; 
+    opacity: 0.3;
+    transition: opacity 0.3s ease, stroke 0.3s ease;
+    pointer-events: none;
+}
+
+/* Punti */
+.dot {
+    stroke: #333;
+    stroke-width: 0.5px;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+    pointer-events: all;
+}
+
+.dot[data-is-outlier="true"] {
+    fill: var(--outlier-red);
+}
+
+.dot[data-is-outlier="false"] {
+    fill: var(--normal-green);
+    fill-opacity: 0.6;
+}
+
+/* =========================================
+   STATO DI SELEZIONE (FOCUS)
+   ========================================= */
+
+/* Sfumatura elementi non selezionati */
+.svg-container.has-selection .dot {
+    fill-opacity: 0.05;
+    stroke-opacity: 0.1;
+}
+
+.svg-container.has-selection .internal-link {
+    opacity: 0.05;
+}
+
+/* Highlight Giallo per la TX in focus */
+.svg-container.has-selection .dot.is-selected,
+.svg-container.has-selection .dot.is-related {
+    stroke: var(--highlight-yellow) !important;
+    stroke-width: 3px !important;
+    fill-opacity: 1 !important;
+    stroke-opacity: 1 !important;
+    /* Effetto bagliore per far risaltare il punto */
+    filter: drop-shadow(0 0 4px rgba(241, 196, 15, 0.6));
+}
+
+/* Linea della TX selezionata */
+.svg-container.has-selection .internal-link.is-active {
+    stroke: var(--highlight-yellow);
+    stroke-width: 2.5;
+    stroke-dasharray: 0;
+    opacity: 1;
+}
+
+/* =========================================
+   ASSI E GRIGLIA
+   ========================================= */
+.axis path,
+.axis line {
+    stroke: #dcdde1;
+}
+
+.axis text {
+    fill: var(--text-muted);
+    font-size: 11px;
+}
+
+/* Linee della griglia (Tick) */
+.tick line {
+    opacity: 0.05;
+    stroke-dasharray: 2,2;
+}

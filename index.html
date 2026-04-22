@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>Bitcoin Transaction Viz</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <header><h1>Analisi Transazioni Bitcoin</h1></header>
+        
+        <div class="dashboard">
+            <aside class="sidebar">
+                <div id="controls">
+                    <button id="toggle-btn" class="btn-primary"></button>
+                    <div id="dynamic-controls"></div>
+                </div>
+            </aside>
+
+            <main id="viz-container"></main>
+        </div>
+    </div>
+
+    <script src="js/chartDotPlot.js"></script>
+    <script src="js/chartStackedBarChart.js"></script>
+    <script src="js/filterManager.js"></script>
+    <script src="js/main.js"></script>
+</body>
+
+</html>

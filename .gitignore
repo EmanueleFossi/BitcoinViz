@@ -1,0 +1,6 @@
+# Not loading data-folders
+data_filtered/
+data/
+
+# Not loading any csv
+*.csv
