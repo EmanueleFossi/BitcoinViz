@@ -7,25 +7,74 @@
     <script src="https://d3js.org/d3.v7.min.js"></script>
 </head>
 <body>
-    <div id="app">
-        <header><h1>Analisi Transazioni Bitcoin</h1></header>
-        
-        <div class="dashboard">
-            <aside class="sidebar">
-                <div id="controls">
-                    <button id="toggle-btn" class="btn-primary"></button>
-                    <div id="dynamic-controls"></div>
-                </div>
-            </aside>
+<div id="app">
 
-            <main id="viz-container"></main>
+    <header class="app-header">
+        <div class="header-left">
+            <div class="header-icon">₿</div>
+            <h1>Bitcoin Transaction Analysis</h1>
+            <span id="header-badge" class="header-badge" style="display:none"></span>
         </div>
+        <span id="header-tx-count" class="header-tx-count"></span>
+    </header>
+
+    <div class="dashboard">
+        <aside class="sidebar">
+
+            <div class="sb-section">
+                <div class="sb-label">View</div>
+                <button id="toggle-btn" class="btn-switch"></button>
+            </div>
+
+            <div class="sb-section">
+                <div class="sb-label">Day</div>
+                <div id="dynamic-controls"></div>
+            </div>
+
+            <div class="sb-filters" id="filter-controls-container"></div>
+
+            <div class="sb-footer">
+                <span class="tx-count-label">TX found: <b id="tx-count-val">—</b></span>
+                <button id="apply-filters-btn" class="btn-apply" style="display:none">Apply</button>
+            </div>
+
+        </aside>
+
+        <main id="viz-container" class="viz-container">
+            <div class="viz-toolbar" id="viz-toolbar">
+                <span class="viz-chip chip-red">● &gt;500 BTC</span>
+                <span class="viz-chip chip-amber">● 100–500 BTC</span>
+                <span class="viz-chip chip-green">● &lt;100 BTC</span>
+                <span class="viz-hint">Zoom · Pan · Click for details</span>
+            </div>
+            <div id="chart-area"></div>
+        </main>
+
     </div>
 
-    <script src="js/chartDotPlot.js"></script>
-    <script src="js/chartStackedBarChart.js"></script>
-    <script src="js/filterManager.js"></script>
-    <script src="js/main.js"></script>
-</body>
+</div>
 
+<div id="transaction-details-panel" class="details-panel">
+    <div class="panel-header">
+        <h3>Transaction Details</h3>
+        <button id="close-panel" class="close-btn"></button>
+    </div>
+    <div id="panel-content" class="panel-content">
+        <p style="color:#555;">Select a transaction to see details.</p>
+    </div>
+</div>
+
+<script src="js/chartDotPlot.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="js/chartStackedBarChart.js"></script>
+<script src="js/filterManager.js"></script>
+<script src="js/clusterManager.js"></script>
+<script src="js/main.js"></script>
+
+<script>
+    document.getElementById('close-panel').addEventListener('click', () => {
+        document.getElementById('transaction-details-panel').classList.remove('open');
+    });
+</script>
+</body>
 </html>
