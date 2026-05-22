@@ -199,9 +199,9 @@ function buildFlowSidebar(arcs, raw) {
                 let addresses = a.addresses;
 
                 if (exclude !== "") {
-    if (a.out_address?.toLowerCase().includes(exclude)) return null;
-    addresses = addresses.filter(o => !o.addr.toLowerCase().includes(exclude));
-}
+            if (a.out_address?.toLowerCase().includes(exclude)) return null;
+            addresses = addresses.filter(o => !o.addr.toLowerCase().includes(exclude));
+        }
                 if (query !== "")
                     addresses = addresses.filter(o => o.addr.toLowerCase().includes(query));
             

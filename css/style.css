@@ -564,3 +564,9 @@ body, html {
 .output-table tr:nth-child(even) td { background: #111219; }
 
 .section-label { font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
+
+#chart-area {
+    width: 100%;
+    height: calc(100vh - 120px); /* Prende tutto lo schermo verticale lasciando spazio solo all'header */
+    min-height: 500px;
+}

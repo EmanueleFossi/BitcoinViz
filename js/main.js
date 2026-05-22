@@ -187,13 +187,14 @@ function updateTxCount(n) {
 }
 
 // ─── Switch chart ─────────────────────────────────────────
-// Modalità supportate: 'scatter' | 'flow' (ex-stacked in Doc 1, ex-flow in Doc 2)
+// Modalità supportate: 'scatter' | 'flow' | 'explorative'
 function switchChart(type) {
     currentType = type;
     chartInstance = null;
 
-    const btn = d3.select("#toggle-btn");
-    const controls = d3.select("#dynamic-controls");
+    const btn            = d3.select("#toggle-btn");
+    const btnExplorative = d3.select("#toggle-btn-explorative");
+    const controls       = d3.select("#dynamic-controls");
     const filterContainer = d3.select("#filter-controls-container");
 
     controls.selectAll("*").remove();
@@ -203,8 +204,8 @@ function switchChart(type) {
     if (applyBtn) applyBtn.style.display = 'none';
 
     if (type === 'scatter') {
-        btn.text("Flow Chart")
-           .on("click", () => switchChart('flow'));
+        btn.text("Flow Chart").on("click", () => switchChart('flow'));
+        btnExplorative.text("Explorative Flow").on("click", () => switchChart('explorative'));
 
         const select = controls.append("select")
             .attr("class", "day-selector")
@@ -225,14 +226,21 @@ function switchChart(type) {
         updateHeaderBadge(defaultDay.label);
         loadDataAndDraw(defaultDay.file);
 
-    } else {
-        // Modalità 'flow' (ex 'stacked' in Doc 1)
-        btn.text("Dot Chart")
-           .on("click", () => switchChart('scatter'));
+    } else if (type === 'flow') {
+        btn.text("Dot Chart").on("click", () => switchChart('scatter'));
+        btnExplorative.text("Explorative Flow").on("click", () => switchChart('explorative'));
 
         updateHeaderBadge(null);
         updateTxCount(null);
-        initFlowChart(); // da Doc 2
+        initFlowChart();
+
+    } else if (type === 'explorative') {
+        btn.text("Dot Chart").on("click", () => switchChart('scatter'));
+        btnExplorative.text("Flow Chart").on("click", () => switchChart('flow'));
+
+        updateHeaderBadge(null);
+        updateTxCount(null);
+        initExplorativeFlow();
     }
 }
 
