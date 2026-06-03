@@ -3,6 +3,7 @@ class ExplorativeFlowChart {
         this.container   = container;
         this.rawData     = rawData;
         this.selectedArc = null;
+        this.hlColorMap  = new Map();
 
         this.margin = { top: 8, right: 20, bottom: 8, left: 20 };
 
@@ -45,7 +46,6 @@ class ExplorativeFlowChart {
     get _axisY() { return Math.round(this.svgH / 2); }
     get _halfH()  { return this._axisY - this.margin.top - this.NODE_R - 10; }
 
-    // ── Time window ──────────────────────────────────────────────
     _processTimeWindow() {
         const times     = this.rawData.map(d => d.time.getTime());
         this.tMin       = new Date(d3.min(times));
@@ -56,7 +56,6 @@ class ExplorativeFlowChart {
         ];
     }
 
-    // ── Hop counts + chain map + root map ────────────────────────
     _computeHopCounts() {
         const txMap = new Map();
         this.rawData.forEach(row => {
@@ -73,7 +72,14 @@ class ExplorativeFlowChart {
         this.txMap    = txMap;
         this.sortedTx = sortedTx;
 
-        // 1. txHopMap
+        // ── Count how many times each address appears as input ──────
+        this.addrTxCount = new Map();
+        sortedTx.forEach(tx => {
+            tx.in_addresses.forEach(addr => {
+                this.addrTxCount.set(addr, (this.addrTxCount.get(addr) || 0) + 1);
+            });
+        });
+
         const hopCount  = new Map();
         const countHops = (hash, visited = new Set()) => {
             if (hopCount.has(hash)) return hopCount.get(hash);
@@ -91,7 +97,6 @@ class ExplorativeFlowChart {
         sortedTx.forEach(tx => countHops(tx.hash));
         this.txHopMap = hopCount;
 
-        // 2. txChainMap: hash → sequenza completa dalla radice
         this.txChainMap = new Map();
         const buildChain = (hash, visited = new Set()) => {
             if (this.txChainMap.has(hash)) return this.txChainMap.get(hash);
@@ -108,7 +113,6 @@ class ExplorativeFlowChart {
         };
         sortedTx.forEach(tx => buildChain(tx.hash));
 
-        // 3. chainRootMap: ogni hash → hash della radice
         const isNextHop = new Set();
         sortedTx.forEach(tx => {
             if (!tx.outputs.length) return;
@@ -124,22 +128,16 @@ class ExplorativeFlowChart {
             }
         });
 
-        // 4. hashToRoot: mappa COMPLETA ogni hash → radice della sua catena.
-        // chainRootMap copre solo le tx nel dataset; hashToRoot copre
-        // anche tx di mezzo catena che potrebbero non essere in chainRootMap.
-        this.hashToRoot = new Map(this.chainRootMap); // copia base
+        this.hashToRoot = new Map(this.chainRootMap);
         this.txChainMap.forEach((chain, rootHash) => {
-            if (this.chainRootMap.get(rootHash) !== rootHash) return; // solo radici
+            if (this.chainRootMap.get(rootHash) !== rootHash) return;
             chain.forEach(h => {
                 if (!this.hashToRoot.has(h)) this.hashToRoot.set(h, rootHash);
             });
         });
 
-        // 5. chainNextMap globale: per ogni hash della catena,
-        //    qual è il successore diretto. Usato da _highlightChain.
         this.globalChainNextMap = new Map();
         this.txChainMap.forEach((chain, rootHash) => {
-            // solo le radici hanno la catena completa
             if (this.chainRootMap.get(rootHash) !== rootHash) return;
             for (let i = 0; i < chain.length - 1; i++) {
                 this.globalChainNextMap.set(chain[i], chain[i + 1]);
@@ -148,7 +146,6 @@ class ExplorativeFlowChart {
         });
     }
 
-    // ── Pre-aggregazione ─────────────────────────────────────────
     _precomputeAllLevels() {
         this.levels = {
             day:  this._aggregateData("day"),
@@ -158,7 +155,6 @@ class ExplorativeFlowChart {
             day:  [...this.levels.day],
             hour: [...this.levels.hour]
         };
-        // Assegna lati una sola volta — catene stessa parte, lunghi sopra
         this._assignLayers(this.levels.day);
         this._assignLayers(this.levels.hour);
     }
@@ -198,7 +194,7 @@ class ExplorativeFlowChart {
             } else {
                 return {
                     key:        `${y}-${m}-${d}-${String(H).padStart(2,'0')}`,
-                    centerTime: new Date(Date.UTC(y, dateObj.getUTCMonth(), dateObj.getUTCDate(), H, 30, 0))
+                    centerTime: new Date(Date.UTC(y, dateObj.getUTCMonth(), dateObj.getUTCDate(), H, 0, 0))
                 };
             }
         };
@@ -223,9 +219,9 @@ class ExplorativeFlowChart {
                 const spendBucket  = getBucketInfo(tx.time);
                 if (originBucket.key === spendBucket.key) return;
 
-                const arcKey       = granularity === "day"
+                const arcKey    = granularity === "day"
                     ? `${originBucket.key}|${spendBucket.key}`
-                    : `${originBucket.key}|${spendBucket.key}|${inAddr}`;
+                    : `${origin.hash}|${tx.hash}|${inAddr}`;
                 const changeOutput = tx.outputs.find(o => o.addr === inAddr);
                 const volumeBtc    = changeOutput ? changeOutput.btc : origin.btc;
                 const hops         = this.txHopMap.get(origin.hash) || 0;
@@ -234,26 +230,18 @@ class ExplorativeFlowChart {
 
                 if (!arcMap.has(arcKey)) {
                     arcMap.set(arcKey, {
-                        key:            arcKey,
-                        fromKey:        originBucket.key,
-                        toKey:          spendBucket.key,
-                        fromCenterTime: originBucket.centerTime,
-                        toCenterTime:   spendBucket.centerTime,
-                        time_from:      originBucket.centerTime,
-                        time_to:        spendBucket.centerTime,
-                        btc:            volumeBtc,
-                        count:          1,
-                        hops,
-                        chainLen,
-                        chainRoot: root,
-                        hashFrom:  origin.hash,
-                        hashTo:    tx.hash,
+                        key: arcKey, fromKey: originBucket.key, toKey: spendBucket.key,
+                        fromCenterTime: originBucket.centerTime, toCenterTime: spendBucket.centerTime,
+                        time_from: originBucket.centerTime, time_to: spendBucket.centerTime,
+                        btc: volumeBtc, count: 1, hops, chainLen,
+                        chainRoot: root, hashFrom: origin.hash, hashTo: tx.hash,
+                        // ── Salva l'inAddr principale dell'arco ──
+                        inAddr: inAddr,
                         addresses: [{ addr: inAddr, btc: volumeBtc, hops }]
                     });
                 } else {
                     const e = arcMap.get(arcKey);
-                    e.btc     += volumeBtc;
-                    e.count   += 1;
+                    e.btc     += volumeBtc; e.count += 1;
                     e.hops     = Math.max(e.hops, hops);
                     e.chainLen = Math.max(e.chainLen, chainLen);
                     e.addresses.push({ addr: inAddr, btc: volumeBtc, hops });
@@ -264,36 +252,30 @@ class ExplorativeFlowChart {
         return Array.from(arcMap.values());
     }
 
-    // ── Assegna lato sopra/sotto ──────────────────────────────────
-    // Regole (in ordine di priorità):
-    // 1. Archi della stessa catena (stesso chainRoot) → stesso lato
-    // 2. Catene distinte si alternano tra sopra e sotto
-    // 3. Archi senza catena (chainLen=1): lunghi sopra, corti sotto
     _assignLayers(arcs) {
-        // Mappa chainRoot → lato assegnato alla catena
         const chainSideMap = new Map();
-        let nextChainSide  = 1; // alterna 1/-1 per catene distinte
-
+        let nextChainSide  = 1;
         arcs.forEach(arc => {
             const root = arc.chainRoot || null;
-
             if (root && arc.chainLen > 1) {
-                // Arco fa parte di una catena
-                if (!chainSideMap.has(root)) {
-                    chainSideMap.set(root, nextChainSide);
-                    nextChainSide *= -1;
-                }
+                if (!chainSideMap.has(root)) { chainSideMap.set(root, nextChainSide); nextChainSide *= -1; }
                 arc._side = chainSideMap.get(root);
             } else {
-                // Arco isolato: lunghi sopra, corti sotto
-                const span = arc.time_to - arc.time_from;
-                const maxSpan = 7 * 24 * 3600 * 1000; // 7 giorni come soglia
-                arc._side = span >= maxSpan ? 1 : -1;
+                arc._side = (arc.time_to - arc.time_from) >= 7 * 24 * 3600 * 1000 ? 1 : -1;
             }
         });
     }
 
-    // ── SVG ──────────────────────────────────────────────────────
+    _getArcHlColor(arc) {
+        if (!this.hlColorMap || this.hlColorMap.size === 0) return null;
+        for (const [query, color] of this.hlColorMap) {
+            if (arc.addresses.some(a => a.addr.toLowerCase().includes(query))) {
+                return color;
+            }
+        }
+        return null;
+    }
+
     _buildSVG() {
         this.container.style("position","relative").style("width","100%").style("height","100%");
         this.hintBar = this.container.append("div").attr("class","ef-hint");
@@ -306,60 +288,57 @@ class ExplorativeFlowChart {
 
         const defs = this.svgEl.append("defs");
 
-        defs.append("clipPath").attr("id","ef-clip-top")
-            .append("rect")
+        defs.append("clipPath").attr("id","ef-clip-top").append("rect")
             .attr("x", this.margin.left).attr("y", 0)
-            .attr("width", this.innerW)
-            .attr("height", this._axisY + this.NODE_R + 2);
+            .attr("width", this.innerW).attr("height", this._axisY + this.NODE_R + 2);
 
-        defs.append("clipPath").attr("id","ef-clip-bot")
-            .append("rect")
+        defs.append("clipPath").attr("id","ef-clip-bot").append("rect")
             .attr("x", this.margin.left).attr("y", this._axisY - this.NODE_R - 2)
-            .attr("width", this.innerW)
-            .attr("height", this.svgH - this._axisY + this.NODE_R + 2);
+            .attr("width", this.innerW).attr("height", this.svgH - this._axisY + this.NODE_R + 2);
 
-        defs.append("clipPath").attr("id","ef-clip-nodes")
-            .append("rect")
+        defs.append("clipPath").attr("id","ef-clip-nodes").append("rect")
             .attr("x", this.margin.left).attr("y", this._axisY - this.NODE_R - 20)
-            .attr("width", this.innerW)
-            .attr("height", this.NODE_R * 2 + 40);
+            .attr("width", this.innerW).attr("height", this.NODE_R * 2 + 40);
 
         defs.append("marker").attr("id","ef-arrow")
             .attr("viewBox","0 0 6 6").attr("refX",5).attr("refY",3)
             .attr("markerWidth",6).attr("markerHeight",6)
-            .attr("markerUnits","userSpaceOnUse")
-            .attr("orient","auto")
+            .attr("markerUnits","userSpaceOnUse").attr("orient","auto")
             .append("path").attr("d","M 0 0 L 6 3 L 0 6 z").attr("fill","context-stroke");
 
         defs.append("marker").attr("id","ef-arrow-hl")
             .attr("viewBox","0 0 6 6").attr("refX",5).attr("refY",3)
             .attr("markerWidth",6).attr("markerHeight",6)
-            .attr("markerUnits","userSpaceOnUse")
-            .attr("orient","auto")
+            .attr("markerUnits","userSpaceOnUse").attr("orient","auto")
             .append("path").attr("d","M 0 0 L 6 3 L 0 6 z").attr("fill","#00FFCC");
 
-        this.gArcTop = this.svgEl.append("g").attr("clip-path","url(#ef-clip-top)");
-        this.gArcBot = this.svgEl.append("g").attr("clip-path","url(#ef-clip-bot)");
+        this.gArcTop = this.svgEl.append("g").attr("clip-path","url(#ef-clip-top)").attr("pointer-events","none");
+        this.gArcBot = this.svgEl.append("g").attr("clip-path","url(#ef-clip-bot)").attr("pointer-events","none");
         this.gChain  = this.svgEl.append("g");
-        this.gNode   = this.svgEl.append("g").attr("clip-path","url(#ef-clip-nodes)");
+        this.gNode   = this.svgEl.append("g").attr("clip-path","url(#ef-clip-nodes)").attr("pointer-events","none");
+
+        this.gHitTop = this.svgEl.append("g").attr("clip-path","url(#ef-clip-top)");
+        this.gHitBot = this.svgEl.append("g").attr("clip-path","url(#ef-clip-bot)");
 
         this.svgEl.append("line").attr("class","ef-axis-line")
-            .attr("x1", 0).attr("x2", this.svgW)
-            .attr("y1", this._axisY).attr("y2", this._axisY)
+            .attr("x1",0).attr("x2",this.svgW)
+            .attr("y1",this._axisY).attr("y2",this._axisY)
             .attr("stroke","rgba(255,255,255,0.12)").attr("stroke-width",1)
             .attr("pointer-events","none");
 
-        this.gGrid = this.svgEl.append("g").attr("class","ef-grid")
-            .attr("pointer-events","none");
+        this.gGrid = this.svgEl.append("g").attr("class","ef-grid").attr("pointer-events","none");
+        this.gAxis = this.svgEl.append("g").attr("class","ef-axis").attr("transform",`translate(0,${this._axisY})`);
+        this.gArc  = this.svgEl.append("g").style("display","none");
 
-        this.gAxis = this.svgEl.append("g")
-            .attr("class","ef-axis")
-            .attr("transform",`translate(0,${this._axisY})`);
-
-        this.gArc = this.svgEl.append("g").style("display","none"); // dummy retrocompatibilità
+        const self = this;
+        this.svgEl.on("click.deselect", function() {
+            if (!self.selectedArc) return;
+            if (self._suppressDeselect) { self._suppressDeselect = false; return; }
+            self.selectedArc = null;
+            self._highlightChain(null);
+        });
     }
 
-    // ── Scale ────────────────────────────────────────────────────
     _buildScales() {
         this.xScale = d3.scaleTime()
             .domain(this.domainFull)
@@ -368,29 +347,18 @@ class ExplorativeFlowChart {
 
         const allArcs = [...this.levels.day, ...this.levels.hour];
         const btcExt  = d3.extent(allArcs, a => a.btc);
+        const btcMin  = Math.max(btcExt[0], 0.0001);
+        const btcMax  = btcExt[1];
 
-        // Scala logaritmica con range ampio: differenze BTC ben visibili
-        const btcMin = Math.max(btcExt[0], 0.0001); // evita log(0)
-        const btcMax = btcExt[1];
-        this.thickScale = d3.scaleLog()
-            .domain([btcMin, btcMax])
-            .range([1.5, 7])
-            .clamp(true);
-
-        this.colorScale = d3.scaleSequential()
-            .domain([btcMin, btcMax])
-            .interpolator(d3.interpolateWarm);
+        this.thickScale = d3.scaleLog().domain([btcMin, btcMax]).range([1.5, 7]).clamp(true);
+        this.colorScale = d3.scaleSequential().domain([btcMin, btcMax]).interpolator(d3.interpolateWarm);
     }
 
-    // ── Zoom ─────────────────────────────────────────────────────
     _buildZoom() {
         const self = this;
         this.zoom = d3.zoom()
             .scaleExtent([1, 120])
-            .translateExtent([
-                [this.margin.left - 500, 0],
-                [this.svgW - this.margin.right + 500, this.svgH]
-            ])
+            .translateExtent([[this.margin.left - 500, 0],[this.svgW - this.margin.right + 500, this.svgH]])
             .on("zoom", function(event) {
                 const k = event.transform.k;
                 self.currentX = event.transform.rescaleX(self.xScale);
@@ -400,35 +368,25 @@ class ExplorativeFlowChart {
         this.svgEl.call(this.zoom);
     }
 
-    // ── Asse + griglia (join D3, zero leak) ──────────────────────
     _renderAxis(x, k) {
         let fmt = d3.timeFormat("%d %b");
-        if (k > 15)                       fmt = d3.timeFormat("%H:%M");
+        if (k > 15) fmt = d3.timeFormat("%H:%M");
         else if (k > this.THRESHOLD_HOUR) fmt = d3.timeFormat("%d %b %H:00");
 
-        const tickCount = k > 15
-            ? Math.floor(this.innerW / 60)
-            : Math.floor(this.innerW / 90);
+        const tickCount = k > 15 ? Math.floor(this.innerW / 60) : Math.floor(this.innerW / 90);
 
-        this.gAxis.call(
-            d3.axisBottom(x).ticks(tickCount).tickFormat(fmt).tickSize(6)
-        )
-        .call(g => g.select(".domain").attr("stroke","rgba(255,255,255,0.15)"))
-        .call(g => g.selectAll(".tick line").attr("stroke","rgba(255,255,255,0.2)"))
-        .call(g => g.selectAll(".tick text").attr("fill","#888").attr("font-size","10px").attr("dy","1.2em"));
+        this.gAxis.call(d3.axisBottom(x).ticks(tickCount).tickFormat(fmt).tickSize(6))
+            .call(g => g.select(".domain").attr("stroke","rgba(255,255,255,0.15)"))
+            .call(g => g.selectAll(".tick line").attr("stroke","rgba(255,255,255,0.2)"))
+            .call(g => g.selectAll(".tick text").attr("fill","#888").attr("font-size","10px").attr("dy","1.2em"));
 
-        this.gGrid.selectAll("line.vgrid")
-            .data(x.ticks(tickCount))
-            .join("line")
+        this.gGrid.selectAll("line.vgrid").data(x.ticks(tickCount)).join("line")
             .attr("class","vgrid")
             .attr("x1", t => x(t)).attr("x2", t => x(t))
-            .attr("y1", this.margin.top)
-            .attr("y2", this.svgH - this.margin.bottom)
-            .attr("stroke","rgba(255,255,255,0.03)")
-            .attr("stroke-width", 1);
+            .attr("y1", this.margin.top).attr("y2", this.svgH - this.margin.bottom)
+            .attr("stroke","rgba(255,255,255,0.03)").attr("stroke-width",1);
     }
 
-    // ── Culling visivo layer orario ───────────────────────────────
     _visibleArcs(arcs) {
         const [domStart, domEnd] = this.currentX.domain();
         return arcs.filter(a =>
@@ -437,22 +395,18 @@ class ExplorativeFlowChart {
         );
     }
 
-    // ── Update principale ────────────────────────────────────────
     update(k, forceRebuildNodes = false) {
         const x = this.currentX;
-        let currentGranularity;
-        let opDay = 0, opHour = 0;
+        let currentGranularity, opDay = 0, opHour = 0;
 
         if (k <= this.THRESHOLD_HOUR) {
-            currentGranularity = "day";
-            opDay  = 0.85;
-            this.hintBar.text("Risoluzione: Giornaliera — flussi aggregati per giorno");
+            currentGranularity = "day"; opDay = 0.85;
+            this.hintBar.text("Resolution: Daily — flows aggregated by day");
         } else {
-            currentGranularity = "hour";
-            opHour = 0.85;
+            currentGranularity = "hour"; opHour = 0.85;
             this.hintBar.text(k > 15
-                ? `Risoluzione: Oraria — ogni flusso separato — Zoom ${k.toFixed(0)}x`
-                : "Risoluzione: Oraria — ogni flusso separato");
+                ? `Resolution: Hourly — each flow separate — Zoom ${k.toFixed(0)}x`
+                : "Resolution: Hourly — each flow separate");
         }
 
         const thr   = this.btcThreshold || 0;
@@ -476,93 +430,76 @@ class ExplorativeFlowChart {
         this._drawLegend(activeArcs);
 
         if (this.selectedArc) {
-            const self  = this;
-            const axisY = this._axisY;
-            this.gChain.selectAll("path.chain-arc")
-                .attr("d", d => {
-                    const x1 = x(d.time_from), x2 = x(d.time_to);
-                    return self._arcPath(x1, x2, self._arcHeight(x1, x2), axisY, d._side || 1);
-                });
+            const self = this, axisY = this._axisY;
+            this.gChain.selectAll("path.chain-arc").attr("d", d => {
+                const x1 = x(d.time_from), x2 = x(d.time_to);
+                return self._arcPath(x1, x2, self._arcHeight(x1, x2), axisY, d._side || 1);
+            });
         }
     }
 
-    // ── Altezza arco ─────────────────────────────────────────────
     _arcHeight(x1, x2) {
         const distance = Math.abs(x2 - x1);
-        const maxH     = this._halfH;
-        const baseH    = Math.min(distance * 0.35, maxH * 0.75);
-        return Math.max(28, Math.min(baseH, maxH));
+        const maxH = this._halfH;
+        const baseH = Math.min(distance * 0.55, maxH * 0.92);
+        return Math.max(32, Math.min(baseH, maxH));
     }
 
-    // ── Path arco ────────────────────────────────────────────────
     _arcPath(x1, x2, h, axisY, side = 1) {
         const startY = axisY - this.NODE_R * side;
         const cy     = axisY - h * side;
         return `M${x1},${startY} C${x1},${cy} ${x2},${cy} ${x2},${startY}`;
     }
 
-    // ── Highlight catena ─────────────────────────────────────────
-    // Usa globalChainNextMap (costruito a monte su tutte le catene)
-    // per trovare solo link diretti tra tx consecutive.
-    // FIX: risolve il caso aggregazione giornaliera dove più tx
-    // condividono lo stesso arco — cerca tutti gli archi il cui
-    // hashFrom appartiene alla catena E il cui hashTo è il successore
-    // atteso, oppure qualsiasi hashFrom della catena se l'arco
-    // attraversa più bucket (chainLen differente).
     _highlightChain(arc) {
         this.gChain.selectAll("*").remove();
 
-        if (!arc) {
-            [this.gArcTop, this.gArcBot].forEach(g => {
-                g.selectAll("path").each(function() {
-                    const el = d3.select(this);
-                    el.style("opacity",  +el.attr("data-opacity"))
-                      .attr("stroke",     el.attr("data-stroke"))
-                      .attr("marker-end", +el.attr("data-opacity") > 0 ? "url(#ef-arrow)" : null);
-                });
-            });
-            return;
-        }
+        this.gHitTop.style("pointer-events", arc ? "none" : null);
+        this.gHitBot.style("pointer-events", arc ? "none" : null);
 
-        // Risale alla radice assoluta usando hashToRoot che copre
-        // tutti gli hash compresi quelli di mezzo catena.
-        const root = this.hashToRoot.get(arc.hashFrom)
-                  || this.hashToRoot.get(arc.hashTo)
-                  || arc.hashFrom;
-
-        const chain    = this.txChainMap.get(root) || [root];
-        const chainSet = new Set(chain);
-
-        // Sfuma tutti gli archi normali
-        [this.gArcTop, this.gArcBot].forEach(g => {
-            g.selectAll("path").style("opacity", 0.05).attr("marker-end","url(#ef-arrow)");
+        const self = this;
+        this.gArcTop.selectAll("path[data-key]").each(function() {
+            const el = d3.select(this), d = el.datum();
+            const baseOp  = +el.attr("data-op");
+            const hlColor = self._getArcHlColor(d);
+            el.attr("stroke", hlColor || self.colorScale(d.btc))
+              .attr("opacity", baseOp)
+              .attr("marker-end", baseOp > 0 ? "url(#ef-arrow)" : null);
+        });
+        this.gArcBot.selectAll("path[data-key]").each(function() {
+            const el = d3.select(this), d = el.datum();
+            const baseOp  = +el.attr("data-op");
+            const hlColor = self._getArcHlColor(d);
+            el.attr("stroke", hlColor || self.colorScale(d.btc))
+              .attr("opacity", baseOp)
+              .attr("marker-end", baseOp > 0 ? "url(#ef-arrow)" : null);
         });
 
-        // Filtra SOLO archi il cui hashFrom è nella chainSet
-        // E il cui hashTo è il successore diretto O è anch'esso nella chainSet.
-        // Questo esclude archi che per coincidenza hanno chainRoot uguale
-        // ma non appartengono alla sequenza temporale della catena.
-        const allArcs = [...this.levels.day, ...this.levels.hour];
+        if (!arc) return;
 
-        // Mappa posizione nella catena: hash → indice
+        let root = arc.chainRoot || this.hashToRoot.get(arc.hashFrom) || arc.hashFrom;
+        const trueRoot = this.chainRootMap.get(root);
+        if (trueRoot && trueRoot !== root) root = trueRoot;
+        let chain = this.txChainMap.get(root);
+        if (!chain) {
+            const fallbackRoot = this.chainRootMap.get(arc.hashFrom) || arc.hashFrom;
+            chain = this.txChainMap.get(fallbackRoot) || [arc.hashFrom];
+            root = fallbackRoot;
+        }
         const chainIdx = new Map();
         chain.forEach((h, i) => chainIdx.set(h, i));
 
+        this.gArcTop.selectAll("path[data-key]").attr("opacity", 0.05).attr("marker-end", null);
+        this.gArcBot.selectAll("path[data-key]").attr("opacity", 0.05).attr("marker-end", null);
+
+        const granularity = this.lastGranularity || 'day';
+        const allArcs   = this.levels[granularity];
         const chainArcs = allArcs.filter(a => {
-            // hashFrom deve essere nella catena
-            if (!chainIdx.has(a.hashFrom)) return false;
-            // hashTo deve essere nella catena con indice >= hashFrom
-            // (niente archi che vanno indietro)
-            if (!chainIdx.has(a.hashTo)) return false;
-            return chainIdx.get(a.hashTo) > chainIdx.get(a.hashFrom);
-        });
+            if (!chainIdx.has(a.hashFrom) || !chainIdx.has(a.hashTo)) return false;
+            return chainIdx.get(a.hashTo) === chainIdx.get(a.hashFrom) + 1;
+        }).sort((a, b) => chainIdx.get(a.hashFrom) - chainIdx.get(b.hashFrom));
 
-        // Ordina per posizione nella catena
-        chainArcs.sort((a, b) => chainIdx.get(a.hashFrom) - chainIdx.get(b.hashFrom));
-
-        const x     = this.currentX;
-        const axisY = this._axisY;
-        const self  = this;
+        const x = this.currentX, axisY = this._axisY;
 
         this.gChain.selectAll("path.chain-arc")
             .data(chainArcs, d => d.key)
@@ -573,108 +510,209 @@ class ExplorativeFlowChart {
             .attr("stroke-linecap","round")
             .attr("marker-end","url(#ef-arrow-hl)")
             .attr("stroke-width", d => self.thickScale(d.btc) + 1)
-            .style("opacity", 0)
+            .attr("opacity", 0)
             .attr("d", d => {
                 const x1 = x(d.time_from), x2 = x(d.time_to);
                 return self._arcPath(x1, x2, self._arcHeight(x1, x2), axisY, d._side || 1);
             })
+            .style("cursor", "pointer")
+            .on("mouseenter", function(event, d) { self._showTooltip(event, d); })
+            .on("mousemove",  function(event) {
+                self.tip.style("left",(event.clientX+15)+"px").style("top",(event.clientY-15)+"px");
+            })
+            .on("mouseleave", function() { self.tip.style("opacity", 0); })
             .on("click", function(event, d) {
                 event.stopPropagation();
-                // Mostra pannello fisso copiabile
-                const tx      = self.txMap ? self.txMap.get(d.hashFrom) : null;
-                const maxOut  = tx && tx.outputs.length
-                    ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a)
-                    : null;
+                self._suppressDeselect = true;
+                self.selectedArc = d;
+                const tx       = self.txMap ? self.txMap.get(d.hashFrom) : null;
+                const maxOut   = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
                 const destAddr = maxOut ? maxOut.addr : (d.addresses[0] ? d.addresses[0].addr : "—");
-                self._showChainPanel(d.hashFrom, destAddr, d.btc, d.chainLen - d.hops, d.chainLen);
+                self._showChainPanel(d.hashFrom, destAddr, d.btc, d.chainLen - d.hops, d.chainLen, d);
             })
-            .transition().duration(300).style("opacity", 1);
+            .transition().duration(300).attr("opacity", 1);
     }
 
-    // ── Render layer archi ───────────────────────────────────────
     _renderArcLayer(className, arcs, opacity, x) {
-        const self  = this;
-        const axisY = this._axisY;
-
+        const self = this, axisY = this._axisY;
         const arcsTop = arcs.filter(a => (a._side || 1) ===  1);
         const arcsBot = arcs.filter(a => (a._side || 1) === -1);
 
-        const renderGroup = (gEl, subArcs, subClass) => {
-            const sel = gEl.selectAll(`path.${className}.${subClass}`)
+        const renderGroup = (gVis, gHit, subArcs, subClass) => {
+            const selVis = gVis.selectAll(`path.${className}.${subClass}`)
                 .data(subArcs, d => d.key);
+            selVis.exit().remove();
 
-            sel.exit().remove();
-
-            const merged = sel.enter().append("path")
+            const enterVis = selVis.enter().append("path")
                 .attr("class", `${className} ${subClass}`)
+                .attr("data-key", d => d.key)
                 .attr("fill", "none")
-                .attr("stroke-linecap", "round")
-                .style("cursor", "pointer")
-                .merge(sel);
+                .attr("stroke-linecap", "round");
 
-            merged
+            enterVis.merge(selVis)
+                .attr("data-op", opacity)
                 .attr("d", d => {
                     const x1 = x(d.time_from), x2 = x(d.time_to);
                     return self._arcPath(x1, x2, self._arcHeight(x1, x2), axisY, d._side || 1);
                 })
-                .attr("stroke",       d => self.colorScale(d.btc))
-                .attr("stroke-width", d => self.thickScale(d.btc))
-                .attr("marker-end",   opacity > 0 ? "url(#ef-arrow)" : null)
-                .each(function(d) {
-                    d3.select(this)
-                        .attr("data-opacity", opacity)
-                        .attr("data-stroke",  self.colorScale(d.btc));
+                .attr("stroke", d => self._getArcHlColor(d) || self.colorScale(d.btc))
+                .attr("stroke-width", d => {
+                    const base = self.thickScale(d.btc);
+                    return self._getArcHlColor(d) ? base + 1.5 : base;
                 })
-                .style("opacity", this.selectedArc ? 0.05 : opacity)
-                .style("display", null);
+                .attr("marker-end",   opacity > 0 ? "url(#ef-arrow)" : null)
+                .attr("opacity",      self.selectedArc ? 0.05 : opacity);
+
+            const selHit = gHit.selectAll(`path.hit-${className}.${subClass}`)
+                .data(subArcs, d => d.key);
+            selHit.exit().remove();
+
+            const enterHit = selHit.enter().append("path")
+                .attr("class", `hit-${className} ${subClass}`)
+                .attr("fill", "none")
+                .attr("stroke", "transparent")
+                .attr("stroke-linecap", "round");
+
+            const mergedHit = enterHit.merge(selHit);
+
+            mergedHit
+                .attr("d", d => {
+                    const x1 = x(d.time_from), x2 = x(d.time_to);
+                    return self._arcPath(x1, x2, self._arcHeight(x1, x2), axisY, d._side || 1);
+                })
+                .attr("stroke-width", d => Math.max(self.thickScale(d.btc) + 10, 16))
+                .style("cursor",         opacity > 0 ? "pointer" : "default")
+                .style("pointer-events", opacity > 0 ? "stroke"  : "none");
 
             if (opacity > 0) {
-                merged
-                    .on("mouseenter", function() {
+                const getVisEl = (d) => gVis.select(`path[data-key="${d.key}"]`);
+
+                mergedHit
+                    .on("mouseenter", function(event, d) {
                         if (self.selectedArc) return;
-                        d3.select(this).style("opacity", 1)
-                            .attr("stroke", "#00FFCC")
-                            .attr("marker-end", "url(#ef-arrow-hl)");
+                        const hoverColor = self._getArcHlColor(d) || "#00FFCC";
+                        getVisEl(d).attr("stroke", hoverColor).attr("marker-end", "url(#ef-arrow-hl)");
+                        self._showTooltip(event, d);
                     })
-                    .on("mouseleave", function() {
+                    .on("mousemove", function(event) {
+                        self.tip.style("left",(event.clientX+15)+"px").style("top",(event.clientY-15)+"px");
+                    })
+                    .on("mouseleave", function(event, d) {
                         if (self.selectedArc) return;
-                        const el = d3.select(this);
-                        el.style("opacity", +el.attr("data-opacity"))
-                          .attr("stroke",     el.attr("data-stroke"))
-                          .attr("marker-end", "url(#ef-arrow)");
+                        getVisEl(d)
+                            .attr("stroke", self._getArcHlColor(d) || self.colorScale(d.btc))
+                            .attr("marker-end", "url(#ef-arrow)");
+                        self.tip.style("opacity", 0);
                     })
                     .on("click", function(event, d) {
                         event.stopPropagation();
-                        if (self.selectedArc && self.selectedArc.key === d.key) {
-                            self.selectedArc = null;
-                            self._highlightChain(null);
-                        } else {
-                            self.selectedArc = d;
-                            self._highlightChain(d);
+                        getVisEl(d)
+                            .attr("stroke", self._getArcHlColor(d) || self.colorScale(d.btc))
+                            .attr("marker-end", "url(#ef-arrow)");
+                        self.tip.style("opacity", 0);
+
+                        if (self.selectedArc) {
+                            const currentRoot  = d.chainRoot || self.hashToRoot.get(d.hashFrom) || d.hashFrom;
+                            const selectedRoot = self.selectedArc.chainRoot || self.hashToRoot.get(self.selectedArc.hashFrom) || self.selectedArc.hashFrom;
+
+                            if (currentRoot === selectedRoot) {
+                                self._suppressDeselect = true;
+                                self.selectedArc = d;
+                                const tx       = self.txMap ? self.txMap.get(d.hashFrom) : null;
+                                const maxOut   = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
+                                const destAddr = maxOut ? maxOut.addr : (d.addresses[0] ? d.addresses[0].addr : "—");
+                                self._showChainPanel(d.hashFrom, destAddr, d.btc, d.chainLen - d.hops, d.chainLen, d);
+                            } else {
+                                self.selectedArc = null;
+                                self._highlightChain(null);
+                            }
+                            return;
                         }
+
+                        self._suppressDeselect = true;
+                        self.selectedArc = d;
+                        self._highlightChain(d);
+                        const tx       = self.txMap ? self.txMap.get(d.hashFrom) : null;
+                        const maxOut   = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
+                        const destAddr = maxOut ? maxOut.addr : (d.addresses[0] ? d.addresses[0].addr : "—");
+                        self._showChainPanel(d.hashFrom, destAddr, d.btc, d.chainLen - d.hops, d.chainLen, d);
                     });
-                self._setupTooltipEvents(merged);
             } else {
-                merged
-                    .on("mouseenter", null).on("mouseleave", null)
-                    .on("click", null).on("mouseover", null).on("mousemove", null)
-                    .attr("marker-end", null);
+                mergedHit
+                    .on("mouseenter",null).on("mousemove",null).on("mouseleave",null).on("click",null)
+                    .style("pointer-events","none");
             }
         };
 
-        renderGroup.call(this, this.gArcTop, arcsTop, "arc-top");
-        renderGroup.call(this, this.gArcBot, arcsBot, "arc-bot");
-
-        this.svgEl.on("click.chain", () => {
-            self.selectedArc = null;
-            self._highlightChain(null);
-        });
+        renderGroup(this.gArcTop, this.gHitTop, arcsTop, "arc-top");
+        renderGroup(this.gArcBot, this.gHitBot, arcsBot, "arc-bot");
     }
 
-    // ── Nodi ─────────────────────────────────────────────────────
+    _showTooltip(event, d) {
+        const isDay = (this.lastGranularity || 'day') === 'day';
+        this.tip.style("opacity", 1)
+            .style("left", (event.clientX+15)+"px")
+            .style("top",  (event.clientY-15)+"px")
+            .html(isDay ? this._tooltipDay(d) : this._tooltipHour(d));
+    }
+
+    _tooltipDay(d) {
+        const dateFrom = d.fromKey;
+        const dateTo   = d.toKey;
+        const [yf,mf,df] = dateFrom.split("-").map(Number);
+        const [yt,mt,dt] = dateTo.split("-").map(Number);
+        const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+        const labelFrom = `${df} ${M[mf-1]} ${yf}`;
+        const labelTo   = `${dt} ${M[mt-1]} ${yt}`;
+        const hlColor = this._getArcHlColor(d);
+        // Mostra il conteggio transazioni dell'inAddr nel tooltip
+        const txCount = d.inAddr ? (this.addrTxCount.get(d.inAddr) || 1) : '—';
+        return `
+            <div style="font-weight:700;color:${hlColor||'#00FFCC'};margin-bottom:6px">
+                Daily aggregated flow
+                <span style="font-size:9px;color:#888;font-weight:400;margin-left:6px">(click to trace chain)</span>
+            </div>
+            <div style="margin-bottom:2px;font-size:10px;color:#aaa">${labelFrom} → ${labelTo}</div>
+            <div style="margin-bottom:2px">Total volume: <b style="color:#fff">₿ ${d.btc.toFixed(4)}</b></div>
+            <div style="margin-bottom:2px">Aggregated flows: <b style="color:#3B82F6">${d.count}</b></div>
+            <div style="margin-bottom:2px">Chain length: <b style="color:#A855F7">${d.chainLen}</b> hop</div>
+            <div style="margin-bottom:2px">Address TX in dataset: <b style="color:#F7931A">${txCount}</b></div>
+        `;
+    }
+
+    _tooltipHour(d) {
+        const hlColor = this._getArcHlColor(d);
+        const txCount = d.inAddr ? (this.addrTxCount.get(d.inAddr) || 1) : '—';
+        const topAddrs = [...d.addresses]
+            .sort((a, b) => b.btc - a.btc).slice(0, 3)
+            .map(a => `<div style="font-family:monospace;font-size:9px;color:#aaa;margin-top:2px">
+                ${a.addr.slice(0,20)}…
+                <span style="color:#F7931A">${a.btc.toFixed(4)} ₿</span>
+            </div>`).join('');
+        return `
+            <div style="font-weight:700;color:${hlColor||'#00FFCC'};margin-bottom:6px">
+                Peeling Chain Segment
+                <span style="font-size:9px;color:#888;font-weight:400;margin-left:6px">(click to trace chain)</span>
+            </div>
+            <div style="margin-bottom:2px">Volume: <b style="color:#fff">₿ ${d.btc.toFixed(4)}</b></div>
+            <div style="margin-bottom:2px">
+                Position: <b style="color:#3B82F6">TX ${d.chainLen - d.hops} / ${d.chainLen}</b>
+                <span style="color:#555;font-size:9px">(from root)</span>
+            </div>
+            <div style="margin-bottom:2px">
+                Remaining hops: <b style="color:#A855F7">${d.hops}</b>
+                <span style="color:#555;font-size:9px">(largest output respent ${d.hops} times)</span>
+            </div>
+            <div style="margin-bottom:6px">
+                Address TX in dataset: <b style="color:#F7931A">${txCount}</b>
+            </div>
+            <div style="color:#888;font-size:9px;margin-bottom:2px">TOP BY VOLUME:</div>
+            ${topAddrs}
+        `;
+    }
+
     _rebuildNodes(activeArcs, granularity) {
         this.gNode.selectAll("*").remove();
-
         const nodeMap = new Map();
         activeArcs.forEach(a => {
             if (!nodeMap.has(a.fromKey)) nodeMap.set(a.fromKey, { key: a.fromKey, time: a.fromCenterTime });
@@ -692,8 +730,7 @@ class ExplorativeFlowChart {
 
         entered.append("text")
             .attr("text-anchor","middle").attr("dominant-baseline","central")
-            .attr("font-size","9px").attr("fill","#F7931A")
-            .text("₿");
+            .attr("font-size","9px").attr("fill","#F7931A").text("₿");
 
         entered.append("text")
             .attr("class","node-label")
@@ -708,7 +745,6 @@ class ExplorativeFlowChart {
             .attr("transform", d => `translate(${x(d.time)},${this._axisY})`);
     }
 
-    // ── Tooltip ──────────────────────────────────────────────────
     _buildTooltip() {
         this.tip = d3.select("body").append("div")
             .attr("class","ef-tooltip")
@@ -718,100 +754,83 @@ class ExplorativeFlowChart {
             .style("color","#fff").style("font-size","11px").style("z-index","1000");
     }
 
-    // ── Pannello fisso dettagli arco catena ──────────────────────
-    // Appare in alto a destra, rimane fermo, ha bottoni copia funzionanti.
     _buildChainPanel() {
         if (this._chainPanel) return;
         this._chainPanel = d3.select(this.container.node().parentNode || document.body)
-            .append("div")
-            .attr("class","ef-chain-panel")
-            .style("position","absolute")
-            .style("top","12px")
-            .style("right","12px")
-            .style("width","300px")
-            .style("background","rgba(10,12,18,0.97)")
-            .style("border","1px solid #00FFCC")
-            .style("border-radius","8px")
-            .style("padding","14px 16px")
-            .style("color","#fff")
-            .style("font-size","11px")
-            .style("z-index","500")
-            .style("display","none")
-            .style("pointer-events","all");
+            .append("div").attr("class","ef-chain-panel")
+            .style("position","absolute").style("top","12px").style("right","12px")
+            .style("width","300px").style("background","rgba(10,12,18,0.97)")
+            .style("border","1px solid #00FFCC").style("border-radius","8px")
+            .style("padding","14px 16px").style("color","#fff").style("font-size","11px")
+            .style("z-index","500").style("display","none").style("pointer-events","all");
     }
 
-    _showChainPanel(txHash, destAddr, btc, pos, total) {
+    _showChainPanel(txHash, destAddr, btc, pos, total, arc) {
         if (!this._chainPanel) this._buildChainPanel();
+        const isDay = (this.lastGranularity || 'day') === 'day';
+        const hlColor = arc ? (this._getArcHlColor(arc) || '#00FFCC') : '#00FFCC';
+        const txCount = arc && arc.inAddr ? (this.addrTxCount.get(arc.inAddr) || 1) : '—';
 
         const copyBtn = (val, color) =>
-            `<button onclick="navigator.clipboard.writeText('${val}').then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='copia',1200)})"
+            `<button onclick="navigator.clipboard.writeText('${val}').then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='copy',1200)})"
                 style="flex-shrink:0;background:transparent;border:1px solid ${color};
                        color:${color};font-size:9px;padding:2px 8px;border-radius:3px;
-                       cursor:pointer;white-space:nowrap">copia</button>`;
+                       cursor:pointer;white-space:nowrap">copy</button>`;
 
-        this._chainPanel
-            .style("display","block")
-            .html(`
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                    <span style="font-weight:700;color:#00FFCC;font-size:12px">Segmento catena</span>
-                    <span style="font-size:10px;color:#555">TX ${pos} / ${total}</span>
-                    <button onclick="this.closest('.ef-chain-panel').style.display='none'"
-                        style="background:none;border:none;color:#555;font-size:14px;
-                               cursor:pointer;padding:0;line-height:1">✕</button>
+        let body;
+        if (isDay && arc) {
+            const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+            const [yf,mf,df] = arc.fromKey.split("-").map(Number);
+            const [yt,mt,dt] = arc.toKey.split("-").map(Number);
+            const labelFrom = `${df} ${M[mf-1]} ${yf}`;
+            const labelTo   = `${dt} ${M[mt-1]} ${yt}`;
+            body = `
+                <div style="color:#888;font-size:9px;margin-bottom:6px">${labelFrom} → ${labelTo}</div>
+                <div style="margin-bottom:8px;font-size:10px;color:#aaa">
+                    Aggregated volume: <b style="color:#fff">₿ ${btc.toFixed(4)}</b>
+                    &nbsp;·&nbsp; <b style="color:#3B82F6">${arc.count}</b> flows
+                    &nbsp;·&nbsp; TX addr: <b style="color:#F7931A">${txCount}</b>
                 </div>
-                <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Hash TX</div>
+                <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Chain root TX hash</div>
                 <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:10px">
                     <span style="font-family:monospace;font-size:8.5px;color:#ddd;word-break:break-all;flex:1">${txHash}</span>
-                    ${copyBtn(txHash, '#00FFCC')}
+                    ${copyBtn(txHash, hlColor)}
                 </div>
-                <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Output maggiore → indirizzo</div>
+                <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Main destination address</div>
+                <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px">
+                    <span style="font-family:monospace;font-size:8.5px;color:#F7931A;word-break:break-all;flex:1">${destAddr}</span>
+                    ${copyBtn(destAddr,'#F7931A')}
+                </div>`;
+        } else {
+            body = `
+                <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">TX hash</div>
+                <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:10px">
+                    <span style="font-family:monospace;font-size:8.5px;color:#ddd;word-break:break-all;flex:1">${txHash}</span>
+                    ${copyBtn(txHash, hlColor)}
+                </div>
+                <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Largest output → address</div>
                 <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:12px">
                     <span style="font-family:monospace;font-size:8.5px;color:#F7931A;word-break:break-all;flex:1">${destAddr}</span>
-                    ${copyBtn(destAddr, '#F7931A')}
+                    ${copyBtn(destAddr,'#F7931A')}
                 </div>
                 <div style="color:#aaa;font-size:10px">
                     Volume: <b style="color:#fff">₿ ${btc.toFixed(4)}</b>
-                </div>
-            `);
+                    &nbsp;·&nbsp; TX addr: <b style="color:#F7931A">${txCount}</b>
+                </div>`;
+        }
+
+        this._chainPanel.style("border-color", hlColor);
+        this._chainPanel.style("display","block").html(`
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                <span style="font-weight:700;color:${hlColor};font-size:12px">${isDay ? 'Daily flow' : 'Chain segment'}</span>
+                ${!isDay ? `<span style="font-size:10px;color:#555">TX ${pos} / ${total}</span>` : ''}
+                <button onclick="this.closest('.ef-chain-panel').style.display='none'"
+                    style="background:none;border:none;color:#555;font-size:14px;cursor:pointer;padding:0;line-height:1">✕</button>
+            </div>
+            ${body}
+        `);
     }
 
-    _setupTooltipEvents(selection) {
-        const tip = this.tip;
-        selection
-            .on("mouseover", function(event, d) {
-                const topAddrs = [...d.addresses]
-                    .sort((a, b) => b.btc - a.btc).slice(0, 3)
-                    .map(a => `<div style="font-family:monospace;font-size:9px;color:#aaa;margin-top:2px">
-                        ${a.addr.slice(0,20)}…
-                        <span style="color:#F7931A">${a.btc.toFixed(4)} ₿</span>
-                    </div>`).join('');
-
-                const posInChain = d.chainLen - d.hops;
-                tip.style("opacity", 1).html(`
-                    <div style="font-weight:700;color:#00FFCC;margin-bottom:6px">
-                        Peeling Chain Segment
-                        <span style="font-size:9px;color:#888;font-weight:400;margin-left:6px">(click per tracciare catena)</span>
-                    </div>
-                    <div style="margin-bottom:2px">Volume: <b style="color:#fff">₿ ${d.btc.toFixed(4)}</b></div>
-                    <div style="margin-bottom:2px">
-                        Posizione: <b style="color:#3B82F6">TX ${posInChain} / ${d.chainLen}</b>
-                        <span style="color:#555;font-size:9px">(dalla radice)</span>
-                    </div>
-                    <div style="margin-bottom:6px">
-                        Hop residui: <b style="color:#A855F7">${d.hops}</b>
-                        <span style="color:#555;font-size:9px">(output maggiore rispeso ancora ${d.hops} volte)</span>
-                    </div>
-                    <div style="color:#888;font-size:9px;margin-bottom:2px">TOP PER VOLUME:</div>
-                    ${topAddrs}
-                `);
-            })
-            .on("mousemove", function(event) {
-                tip.style("left",(event.clientX+15)+"px").style("top",(event.clientY-15)+"px");
-            })
-            .on("mouseleave", function() { tip.style("opacity", 0); });
-    }
-
-    // ── Legenda ──────────────────────────────────────────────────
     _drawLegend(arcs) {
         this.svgEl.selectAll(".ef-legend").remove();
         if (!arcs.length) return;
@@ -819,20 +838,30 @@ class ExplorativeFlowChart {
         this.svgEl.append("g").attr("class","ef-legend")
             .attr("transform",`translate(${this.margin.left},${this.svgH - 8})`)
             .append("text").attr("font-size","10px").attr("fill","#555")
-            .text(`Spessore: ${btcExt[0]?.toFixed(1)||0} – ${btcExt[1]?.toFixed(1)||0} BTC (log)  ·  Click su arco per tracciare peeling chain`);
+            .text(`Thickness: ${btcExt[0]?.toFixed(1)||0} – ${btcExt[1]?.toFixed(1)||0} BTC (log)  ·  Click on arc to trace peeling chain`);
     }
 
-    // ── Filtri pubblici ──────────────────────────────────────────
-    applyFilters({ query, exclude, minB, maxB, maxGapH = Infinity, minHops = 0 }) {
+    applyFilters({ queries = [], excludes = [], hlColorMap = new Map(), minB, maxB, maxGapH = Infinity, minHops = 0, maxAddrTx = Infinity }) {
+        this.hlColorMap = hlColorMap;
+
         const filterFn = a => {
-            if (maxGapH !== Infinity) {
-                const gapH = (a.toCenterTime - a.fromCenterTime) / 3600000;
-                if (gapH > maxGapH) return false;
-            }
+            if (maxGapH !== Infinity && (a.toCenterTime - a.fromCenterTime) / 3600000 > maxGapH) return false;
             if (minHops > 0 && a.chainLen < minHops) return false;
+
+            // ── Filter by max TX count of the input address ──
+            if (maxAddrTx !== Infinity && a.inAddr) {
+                const count = this.addrTxCount.get(a.inAddr) || 1;
+                if (count > maxAddrTx) return false;
+            }
+
             let addresses = a.addresses;
-            if (exclude) addresses = addresses.filter(o => !o.addr.toLowerCase().includes(exclude));
-            if (query)   addresses = addresses.filter(o =>  o.addr.toLowerCase().includes(query));
+
+            if (excludes.length > 0)
+                addresses = addresses.filter(o => !excludes.some(ex => o.addr.toLowerCase().includes(ex)));
+
+            if (queries.length > 0)
+                addresses = addresses.filter(o => queries.some(q => o.addr.toLowerCase().includes(q)));
+
             if (!addresses.length) return false;
             const totalBtc = addresses.reduce((s, o) => s + o.btc, 0);
             return totalBtc >= minB && totalBtc <= maxB;
@@ -840,22 +869,21 @@ class ExplorativeFlowChart {
 
         this.filteredLevels.day  = this.levels.day.filter(filterFn);
         this.filteredLevels.hour = this.levels.hour.filter(filterFn);
-
         this.selectedArc = null;
         this.gChain.selectAll("*").remove();
         this.update(d3.zoomTransform(this.svgEl.node()).k, true);
     }
 }
 
-// ── Helpers ──────────────────────────────────────────────────────
 function efFmtDay(dateStr) {
     const [y, m, d] = dateStr.split("-").map(Number);
-    const M = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+    const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     return `${d} ${M[m-1]}`;
 }
+
 function efFmtHour(hourStr) {
     const parts = hourStr.split("-");
     const d = parts[2], m = Number(parts[1]), h = parts[3];
-    const M = ["Gen","Feb","Mar","Apr","Mag","Giu","Lug","Ago","Set","Ott","Nov","Dic"];
+    const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     return `${d} ${M[m-1]} ${h}:00`;
 }
