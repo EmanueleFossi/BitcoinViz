@@ -37,7 +37,7 @@ async function initApp() {
     chartArea.html("<p class='loading-text'>Loading global index...</p>");
 
     try {
-        const spentData = await d3.csv("data/unique_spent_addresses.csv");
+        const spentData = await d3.csv("data_cleaned/unique_spent_addresses.csv");
         globalSpentSet = new Set(spentData.map(d => d.address));
         chartArea.selectAll("*").remove();
         switchChart('scatter');
@@ -204,6 +204,7 @@ function switchChart(type) {
     if (applyBtn) applyBtn.style.display = 'none';
 
     if (type === 'scatter') {
+        d3.select("#load-matrix-btn").text("Matrix View");
         btn.text("Flow Chart").on("click", () => switchChart('flow'));
         btnExplorative.text("Explorative Flow").on("click", () => switchChart('explorative'));
 
@@ -227,6 +228,7 @@ function switchChart(type) {
         loadDataAndDraw(defaultDay.file);
 
     } else if (type === 'flow') {
+        d3.select("#load-matrix-btn").text("Matrix View");
         btn.text("Dot Chart").on("click", () => switchChart('scatter'));
         btnExplorative.text("Explorative Flow").on("click", () => switchChart('explorative'));
 
@@ -235,6 +237,7 @@ function switchChart(type) {
         initFlowChart();
 
     } else if (type === 'explorative') {
+        d3.select("#load-matrix-btn").text("Matrix View");
         btn.text("Dot Chart").on("click", () => switchChart('scatter'));
         btnExplorative.text("Flow Chart").on("click", () => switchChart('flow'));
 
@@ -247,6 +250,12 @@ function switchChart(type) {
 // ─── Event listeners ──────────────────────────────────────
 const exportBtn = document.getElementById('export-csv-btn');
 if (exportBtn) exportBtn.addEventListener('click', exportAllDaysCSV);
+const matrixBtn = document.getElementById('load-matrix-btn');
+if (matrixBtn) matrixBtn.addEventListener('click', () => {
+    updateHeaderBadge(null);
+    updateTxCount(null);
+    initMatrixChart();
+});
 
 // ─── Avvio ────────────────────────────────────────────────
 initApp();

@@ -95,7 +95,7 @@ function buildExplorativeSidebar(chart) {
             chart.update(d3.zoomTransform(chart.svgEl.node()).k, false);
         });
 
-    lbl("Gap massimo (ore):");
+    lbl("Maximum gap (hours):");
     const gapRow = container.append("div")
         .style("display","flex").style("align-items","center").style("gap","8px");
 
@@ -108,7 +108,7 @@ function buildExplorativeSidebar(chart) {
         .attr("class","filter-input")
         .style("width","100%").style("box-sizing","border-box");
 
-    lbl("Salti minimi output maggiore:");
+    lbl("Minimum jumps largest output:");
     const hopsRow = container.append("div")
         .style("display","flex").style("align-items","center").style("gap","8px");
 
@@ -122,7 +122,7 @@ function buildExplorativeSidebar(chart) {
         .style("width","100%").style("box-sizing","border-box");
 
     container.append("button")
-        .text("Applica Filtri")
+        .text("Apply Filters")
         .attr("class","apply-btn")
         .style("width","100%").style("margin-top","14px")
         .on("click", () => {

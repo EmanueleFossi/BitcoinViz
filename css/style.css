@@ -85,6 +85,34 @@ body, html {
     font-size: 11px;
     color: var(--text-hint);
 }
+/* =========================================
+   SIDEBAR RESIZE HANDLE
+   ========================================= */
+.sidebar-resize-handle {
+    position: absolute;
+    top: 0;
+    right: -4px;
+    width: 8px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 100;
+    background: transparent;
+    transition: background 0.15s;
+}
+
+.sidebar-resize-handle:hover {
+    background: rgba(247, 147, 26, 0.25);
+}
+
+.sidebar-resize-handle.dragging {
+    background: rgba(247, 147, 26, 0.45);
+}
+
+/* Prevent text selection while dragging */
+body.sidebar-resizing {
+    user-select: none;
+    cursor: col-resize;
+}
 
 /* =========================================
    LAYOUT
@@ -103,6 +131,7 @@ body, html {
 .sidebar {
     width: 256px;
     min-width: 256px;
+     position: relative;  
     background: var(--surface);
     border-radius: 10px;
     border: 1px solid var(--border);
@@ -162,7 +191,9 @@ body, html {
    BOTTONI
    ========================================= */
 .btn-switch {
+    display: block;   
     width: 100%;
+    margin-bottom: 8px;
     padding: 10px 14px;
     background: var(--orange);
     color: white;
@@ -173,6 +204,7 @@ body, html {
     cursor: pointer;
     letter-spacing: 0.02em;
     transition: background 0.15s;
+    box-sizing: border-box;
 }
 
 .btn-switch:hover  { background: var(--orange-dark); }

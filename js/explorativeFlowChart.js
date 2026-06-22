@@ -446,13 +446,15 @@ class ExplorativeFlowChart {
         if (k <= this.THRESHOLD_HOUR) {
             currentGranularity = "day";
             opDay  = 0.85;
-            this.hintBar.text("Risoluzione: Giornaliera — flussi aggregati per giorno");
+           this.hintBar.text("Resolution: Daily – Aggregated flows per day");
+
         } else {
             currentGranularity = "hour";
             opHour = 0.85;
             this.hintBar.text(k > 15
-                ? `Risoluzione: Oraria — ogni flusso separato — Zoom ${k.toFixed(0)}x`
-                : "Risoluzione: Oraria — ogni flusso separato");
+    ? `Resolution: Hourly – Each flow separated – Zoom ${k.toFixed(0)}x`
+    : "Resolution: Hourly – Each flow separated");
+
         }
 
         const thr   = this.btcThreshold || 0;
@@ -753,7 +755,7 @@ class ExplorativeFlowChart {
             .style("display","block")
             .html(`
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-                    <span style="font-weight:700;color:#00FFCC;font-size:12px">Segmento catena</span>
+                    <span style="font-weight:700;color:#00FFCC;font-size:12px">Chain segment</span>
                     <span style="font-size:10px;color:#555">TX ${pos} / ${total}</span>
                     <button onclick="this.closest('.ef-chain-panel').style.display='none'"
                         style="background:none;border:none;color:#555;font-size:14px;
@@ -764,7 +766,7 @@ class ExplorativeFlowChart {
                     <span style="font-family:monospace;font-size:8.5px;color:#ddd;word-break:break-all;flex:1">${txHash}</span>
                     ${copyBtn(txHash, '#00FFCC')}
                 </div>
-                <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Output maggiore → indirizzo</div>
+                <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Larger output → address</div>
                 <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:12px">
                     <span style="font-family:monospace;font-size:8.5px;color:#F7931A;word-break:break-all;flex:1">${destAddr}</span>
                     ${copyBtn(destAddr, '#F7931A')}

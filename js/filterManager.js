@@ -79,12 +79,12 @@ class FilterManager {
 
         // ── Minimum MAX output ────────────────────────────────────
         const minValSection = wrapper.append("div").attr("class", "filter-section");
-        minValSection.append("label").text("Minimum Output (BTC)");
+        minValSection.append("label").text("Minimum LARGEST Output (BTC)");
         this.minValInput = minValSection.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", 0);
 
         // ── Minimum MIN output ← NUOVO ────────────────────────────
         const minMinSection = wrapper.append("div").attr("class", "filter-section");
-        minMinSection.append("label").text("Minimum min-Output (BTC)");
+        minMinSection.append("label").text("Minimum SMALLEST Output (BTC)");
         this.minMinInput = minMinSection.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", 0);
 
         // ── Maximum MAX output ────────────────────────────────────

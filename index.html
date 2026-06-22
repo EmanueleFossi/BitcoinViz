@@ -20,11 +20,15 @@
 
     <div class="dashboard">
         <aside class="sidebar">
+             <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
 
             <div class="sb-section">
                 <div class="sb-label">View</div>
                 <button id="toggle-btn" class="btn-switch"></button>
                 <button id="toggle-btn-explorative" class="btn-switch">Explorative Flow</button>
+                <button id="load-matrix-btn" class="btn-switch">Matrix View</button>
+    
+
             </div>
 
             <div class="sb-section">
@@ -66,6 +70,7 @@
     </div>
 </div>
 
+
 <script src="js/chartDotPlot.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="js/flowChart.js"></script>
@@ -73,6 +78,10 @@
 <script src="js/explorativeFlow.js"></script>
 <script src="js/filterManager.js"></script>
 <script src="js/clusterManager.js"></script>
+<script src="js/peelingChainDetection.js"></script>
+<script src="js/matrixChart.js"></script>
+<script src="js/Peelingchainorigin.js"></script>
+ <script src="js/sidebarResize.js"></script>
 <script src="js/main.js"></script>
 
 <script>
@@ -80,5 +89,6 @@
         document.getElementById('transaction-details-panel').classList.remove('open');
     });
 </script>
+
 </body>
 </html>
