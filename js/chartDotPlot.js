@@ -17,7 +17,14 @@ class ChartDotPlot {
         this.init();
     }
 
-    init() {
+     init() {
+        document.getElementById('sb-day-section')?.style.removeProperty('display');
+        document.querySelector('.sb-footer')?.style.removeProperty('display');
+        document.querySelectorAll('.viz-chip').forEach(el => el.style.removeProperty('display'));
+        d3.select(".ef-chain-panel").remove();
+    d3.select(".ef-peel-panel").remove();
+        d3.select("#ef-legend-footer").remove();
+        d3.select(".ef-zoom-notice").remove();
         d3.select(this.selector).selectAll("*").remove();
         d3.select(this.selector).style("position", "relative");
 
@@ -96,7 +103,7 @@ class ChartDotPlot {
         
         this.xScale = d3.scaleUtc().domain(domainX).range([0, this.width]);
 
-        let domainY;
+    let domainY;
         if (this.isDrilledDown && this.displayData.length > 0) {
             const minV = d3.min(this.displayData, d => +d.maxSingleVal);
             const maxV = d3.max(this.displayData, d => +d.maxSingleVal);
@@ -107,6 +114,7 @@ class ChartDotPlot {
         }
 
         this.yScale = d3.scaleLinear().domain(domainY).range([this.height, 0]);
+
 
         this.xAxis = d3.axisBottom(this.xScale).tickSize(-this.height).tickFormat(d3.utcFormat("%H:%M"));
         this.yAxis = d3.axisLeft(this.yScale).tickSize(-this.width);

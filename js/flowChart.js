@@ -10,7 +10,7 @@
 //         Arc thickness = output_value_BTC of the original output tx.
 // ─────────────────────────────────────────────────────────────────
 
-const FLOW_CSV = "data_cleaned/bitcoin_filtered.csv";
+/*const FLOW_CSV = "data_cleaned/bitcoin_filtered.csv";
 
 const FLOW_PALETTE = [
     "#F7931A","#3B82F6","#10B981","#F43F5E","#A855F7",
@@ -526,4 +526,4 @@ gaps.forEach((gap, i) => {
 });
 
    
-}
+}*/

@@ -32,13 +32,13 @@ body, html {
    HEADER
    ========================================= */
 .app-header {
-    height: 52px;
+    height: 36px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 20px;
+    padding: 0 16px;
     flex-shrink: 0;
     position: relative;
     z-index: 10;
@@ -51,21 +51,21 @@ body, html {
 }
 
 .header-icon {
-    width: 28px;
-    height: 28px;
+    width: 22px;
+    height: 22px;
     background: var(--orange);
     border-radius: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 14px;
+    font-size: 11px;
     font-weight: 700;
     color: white;
     flex-shrink: 0;
 }
 
 .app-header h1 {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     color: var(--text-primary);
     letter-spacing: -0.01em;
@@ -121,8 +121,9 @@ body.sidebar-resizing {
     display: flex;
     gap: 16px;
     padding: 16px;
-    height: calc(100vh - 52px);
+    height: calc(100vh - 36px);
     overflow: hidden;
+    width: 100%;  
 }
 
 /* =========================================
@@ -324,11 +325,12 @@ body.sidebar-resizing {
    ========================================= */
 .viz-container {
     flex: 1;
+     min-width: 0; 
     background: var(--surface);
     border-radius: 10px;
     border: 1px solid var(--border);
     box-shadow: var(--shadow-sm);
-    overflow: hidden;
+     overflow: hidden; 
     position: relative;
     display: flex;
     flex-direction: column;
@@ -337,9 +339,12 @@ body.sidebar-resizing {
 #chart-area {
     flex: 1;
     position: relative;
-    overflow: hidden;
+   /* overflow: hidden; */
     width: 100%;
     height: 100%;
+    padding: 0 12px;   /* 🌟 ADD THIS: Creates a safe horizontal safety margin inside the container */
+    box-sizing: border-box;
+     min-height: 0; 
 }
 
 .viz-toolbar {
@@ -597,8 +602,3 @@ body.sidebar-resizing {
 
 .section-label { font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
 
-#chart-area {
-    width: 100%;
-    height: calc(100vh - 120px); /* Prende tutto lo schermo verticale lasciando spazio solo all'header */
-    min-height: 500px;
-}

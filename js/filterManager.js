@@ -6,9 +6,10 @@ class FilterManager {
         
         this.renderingLimit = 5000;
         this.unbalancedThreshold = 1; 
-        this.minSingleOutput = 0;     // soglia su output MASSIMO della TX
-        this.minMinOutput    = 0;     // soglia su output MINIMO della TX  ← NUOVO
-        this.maxSingleOutput = Infinity;
+        this.minSingleOutput = 0;        // Minimum threshold on the TX's maximum output
+        this.maxSingleOutput = Infinity; // Maximum threshold on the TX's maximum output
+        this.minMinOutput    = 0;        // Minimum threshold on the TX's minimum output
+        this.maxMinOutput    = Infinity; // Maximum threshold on the TX's minimum output
         this.topRatioThreshold = 1; 
         this.onlySpentInPeriod = false; 
 
@@ -77,21 +78,19 @@ class FilterManager {
         trSection.append("label").text("1° / 2° Output Ratio");
         this.trInput = trSection.append("input").attr("type", "number").attr("min", 1).attr("step", 0.1).attr("value", 1);
 
-        // ── Minimum MAX output ────────────────────────────────────
-        const minValSection = wrapper.append("div").attr("class", "filter-section");
-        minValSection.append("label").text("Minimum LARGEST Output (BTC)");
-        this.minValInput = minValSection.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", 0);
+       // ── Largest Output range (min – max) ────────────────────────
+        const largestSection = wrapper.append("div").attr("class", "filter-section");
+        largestSection.append("label").text("Largest Output (min – max BTC)");
+        const largestRow = largestSection.append("div").style("display", "flex").style("gap", "6px");
+        this.minValInput = largestRow.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", 0).attr("placeholder", "min");
+        this.maxValInput = largestRow.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", "").attr("placeholder", "no limit");
 
-        // ── Minimum MIN output ← NUOVO ────────────────────────────
-        const minMinSection = wrapper.append("div").attr("class", "filter-section");
-        minMinSection.append("label").text("Minimum SMALLEST Output (BTC)");
-        this.minMinInput = minMinSection.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", 0);
-
-        // ── Maximum MAX output ────────────────────────────────────
-        const maxValSection = wrapper.append("div").attr("class", "filter-section");
-        maxValSection.append("label").text("Maximum Output (BTC)");
-        this.maxValInput = maxValSection.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", "");
-        this.maxValInput.attr("placeholder", "no limit");
+        // ── Smallest Output range (min – max) ← NUOVO ────────────────
+        const smallestSection = wrapper.append("div").attr("class", "filter-section");
+        smallestSection.append("label").text("Smallest Output (min – max BTC)");
+        const smallestRow = smallestSection.append("div").style("display", "flex").style("gap", "6px");
+        this.minMinInput = smallestRow.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", 0).attr("placeholder", "min");
+        this.maxMinInput = smallestRow.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", "").attr("placeholder", "no limit");
 
         // ── Inputs range ──────────────────────────────────────────
         const inSection = wrapper.append("div").attr("class", "filter-section");
@@ -118,9 +117,10 @@ class FilterManager {
         this.infoArea = wrapper.append("div").attr("class", "filter-info");
 
         // ── Listeners ─────────────────────────────────────────────
-        const inputs = [
+       const inputs = [
             this.ubInput, this.trInput,
-            this.minValInput, this.minMinInput, this.maxValInput,
+            this.minValInput, this.maxValInput,
+            this.minMinInput, this.maxMinInput,
             this.minIn, this.maxIn,
             this.minOut, this.maxOut,
             this.spentCheck
@@ -139,9 +139,10 @@ class FilterManager {
     updatePreview() {
         this.unbalancedThreshold    = +this.ubInput.property("value")    || 1;
         this.topRatioThreshold      = +this.trInput.property("value")    || 1;
-        this.minSingleOutput        = +this.minValInput.property("value")|| 0;
-        this.minMinOutput           = +this.minMinInput.property("value")|| 0;
+       this.minSingleOutput = +this.minValInput.property("value") || 0;
         this.maxSingleOutput = +this.maxValInput.property("value") || Infinity;
+        this.minMinOutput    = +this.minMinInput.property("value") || 0;
+        this.maxMinOutput    = +this.maxMinInput.property("value") || Infinity;   // NEW
         this.filterState.minInputs  = +this.minIn.property("value")     || 0;
         this.filterState.maxInputs  = +this.maxIn.property("value")     || 0;
         this.filterState.minOutputs = +this.minOut.property("value")    || 0;
@@ -164,14 +165,16 @@ class FilterManager {
         return this.aggregatedTransactions.filter(tx => {
             const matchUnbalanced = tx.ratio        >= this.unbalancedThreshold;
             const matchTopRatio   = tx.topRatio     >= this.topRatioThreshold;
-            const matchMinVal     = tx.maxSingleVal >= this.minSingleOutput;
-            const matchMinMin     = tx.minSingleVal >= this.minMinOutput;
-            const matchMaxVal = tx.maxSingleVal <= this.maxSingleOutput; 
+           const matchMinVal = tx.maxSingleVal >= this.minSingleOutput;
+            const matchMaxVal = tx.maxSingleVal <= this.maxSingleOutput;
+            const matchMinMin = tx.minSingleVal >= this.minMinOutput;
+            const matchMaxMin = tx.minSingleVal <= this.maxMinOutput;   // NEW
             const matchInputs     = tx.inputs  >= this.filterState.minInputs  && tx.inputs  <= this.filterState.maxInputs;
             const matchOutputs    = tx.outputs >= this.filterState.minOutputs && tx.outputs <= this.filterState.maxOutputs;
             const matchSpent      = !this.onlySpentInPeriod || tx.wasSpent;
 
-            return matchUnbalanced && matchTopRatio && matchMinVal && matchMinMin && matchMaxVal
+           return matchUnbalanced && matchTopRatio && matchMinVal && matchMaxVal
+                && matchMinMin && matchMaxMin
                 && matchInputs && matchOutputs && matchSpent;
         });
     }
@@ -180,9 +183,10 @@ class FilterManager {
         return {
             unbalancedThreshold: this.unbalancedThreshold,
             topRatioThreshold:   this.topRatioThreshold,
-            minSingleOutput:     this.minSingleOutput,
-            minMinOutput:        this.minMinOutput,
+          minSingleOutput:     this.minSingleOutput,
             maxSingleOutput:     this.maxSingleOutput,
+            minMinOutput:        this.minMinOutput,
+            maxMinOutput:        this.maxMinOutput,   // NEW
             filterState:         { ...this.filterState },
             onlySpentInPeriod:   this.onlySpentInPeriod,
         };

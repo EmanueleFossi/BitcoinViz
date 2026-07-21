@@ -41,8 +41,9 @@ def export_csv():
     min_ratio   = float(params.get("unbalancedThreshold", 1))
     top_ratio   = float(params.get("topRatioThreshold",   1))
     min_btc     = float(params.get("minSingleOutput",     0))
-    min_min_btc = float(params.get("minMinOutput",        0))
     max_btc     = float(params.get("maxSingleOutput", float('inf')))
+    min_min_btc = float(params.get("minMinOutput",        0))
+    max_min_btc = float(params.get("maxMinOutput",  float('inf')))   # NEW
     min_inputs  = int(params.get("minInputs",  0))
     max_inputs  = int(params.get("maxInputs",  999999))
     min_outputs = int(params.get("minOutputs", 0))
@@ -50,8 +51,8 @@ def export_csv():
     only_spent  = bool(params.get("onlySpentInPeriod", False))
 
     print(f"\n[Export] Filtri ricevuti: ratio>={min_ratio}, topRatio>={top_ratio}, "
-          f"minBTC>={min_btc}, minMinBTC>={min_min_btc}, maxBTC<={max_btc}, inputs {min_inputs}-{max_inputs}, "
-          f"outputs {min_outputs}-{max_outputs}, onlySpent={only_spent}")
+          f"largestOutput {min_btc}-{max_btc}, smallestOutput {min_min_btc}-{max_min_btc}, "
+          f"inputs {min_inputs}-{max_inputs}, outputs {min_outputs}-{max_outputs}, onlySpent={only_spent}")
 
     all_chunks = []
     for filename in ALL_FILES:
@@ -89,8 +90,9 @@ def export_csv():
         if ratio     < min_ratio:   continue
         if top_r     < top_ratio:   continue
         if max_val   < min_btc:     continue
-        if min_val    < min_min_btc: continue
         if max_btc < float('inf') and max_val > max_btc: continue
+        if min_val   < min_min_btc: continue
+        if max_min_btc < float('inf') and min_val > max_min_btc: continue   # NEW
         if num_inputs  < min_inputs  or num_inputs  > max_inputs:  continue
         if num_outputs < min_outputs or num_outputs > max_outputs: continue
 

@@ -29,6 +29,34 @@ function parseRow(d) {
         transaction_inputs: +d.transaction_inputs || 1
     };
 }
+function setViewChrome(view) {
+    const isCluster = view === 'cluster';
+
+    const daySection = document.getElementById('sb-day-section');
+    if (daySection) daySection.style.display = isCluster ? '' : 'none';
+
+    const footer = document.querySelector('.sb-footer');
+    if (footer) footer.style.display = isCluster ? '' : 'none';
+
+    document.querySelectorAll('.viz-chip').forEach(el => {
+        el.style.display = isCluster ? '' : 'none';
+    });
+}
+// Shows/hides chrome that only makes sense on the cluster (dot-plot) screen:
+// the Day dropdown, the TX-found/Apply/Export footer, and the >500/100-500/<100 BTC chips.
+function setViewChrome(view) {
+    const isCluster = view === 'cluster';
+
+    const daySection = document.getElementById('sb-day-section');
+    if (daySection) daySection.style.display = isCluster ? '' : 'none';
+
+    const footer = document.querySelector('.sb-footer');
+    if (footer) footer.style.display = isCluster ? '' : 'none';
+
+    document.querySelectorAll('.viz-chip').forEach(el => {
+        el.style.display = isCluster ? '' : 'none';
+    });
+}
 
 // ─── Init app ─────────────────────────────────────────────
 // Usa data_cleaned/ come path (Doc 2), coerente con loadDataAndDraw
@@ -100,10 +128,10 @@ async function loadDataAndDraw(fileName) {
         }
 
     } catch (err) {
-        console.error("❌ Errore:", err);
+        console.error("❌ Error:", err);
         d3.select("#chart-area").html(`
             <div style="color:red;padding:20px;border:1px solid red;">
-                <b>Errore nel caricamento di ${fileName}</b><br>${err.message}
+                <b>Error loading ${fileName}</b><br>${err.message}
             </div>
         `);
     }
@@ -112,7 +140,7 @@ async function loadDataAndDraw(fileName) {
 // ─── Export CSV via Flask (da Doc 1) ──────────────────────
 async function exportAllDaysCSV() {
     if (!filterManager) {
-        alert("Carica prima un giorno per impostare i filtri.");
+        alert("Load a day first to set the filters.");
         return;
     }
 
@@ -128,11 +156,12 @@ async function exportAllDaysCSV() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                unbalancedThreshold: params.unbalancedThreshold,
+               unbalancedThreshold: params.unbalancedThreshold,
                 topRatioThreshold:   params.topRatioThreshold,
                 minSingleOutput:     params.minSingleOutput,
-                minMinOutput:        params.minMinOutput,
                 maxSingleOutput:     params.maxSingleOutput,
+                minMinOutput:        params.minMinOutput,
+                maxMinOutput:        params.maxMinOutput,   // NEW
                 minInputs:           params.filterState.minInputs,
                 maxInputs:           params.filterState.maxInputs,
                 minOutputs:          params.filterState.minOutputs,
@@ -144,19 +173,19 @@ async function exportAllDaysCSV() {
         const result = await response.json();
 
         if (!response.ok || result.error) {
-            alert(`Errore export: ${result.error}`);
+            alert(`Error exporting: ${result.error}`);
             return;
         }
 
         alert(
-            `Export completato!\n\n` +
+            `Export completed!\n\n` +
             `File: ${result.file}\n` +
-            `Transazioni: ${result.tx_count.toLocaleString('it-IT')}\n` +
-            `Righe totali: ${result.rows.toLocaleString('it-IT')}\n\n` +
-            `Salvato in: exports/${result.file}`
+            `Transactions: ${result.tx_count.toLocaleString('it-IT')}\n` +
+            `Total rows: ${result.rows.toLocaleString('it-IT')}\n\n` +
+            `Saved in: data_cleaned/${result.file}`
         );
 
-        console.log(`[Export] Salvato: exports/${result.file} — ${result.tx_count} TX, ${result.rows} righe`);
+        console.log(`[Export] Saved: data_cleaned/${result.file} — ${result.tx_count} TX, ${result.rows} rows`);
 
     } catch (err) {
         console.error("[Export] Errore:", err);
@@ -194,7 +223,7 @@ function switchChart(type) {
 
     const btn            = d3.select("#toggle-btn");
     const btnExplorative = d3.select("#toggle-btn-explorative");
-    const controls       = d3.select("#dynamic-controls");
+    const controls        = d3.select("#dynamic-controls");
     const filterContainer = d3.select("#filter-controls-container");
 
     controls.selectAll("*").remove();
@@ -204,6 +233,7 @@ function switchChart(type) {
     if (applyBtn) applyBtn.style.display = 'none';
 
     if (type === 'scatter') {
+        setViewChrome('cluster');
         d3.select("#load-matrix-btn").text("Matrix View");
         btn.text("Flow Chart").on("click", () => switchChart('flow'));
         btnExplorative.text("Explorative Flow").on("click", () => switchChart('explorative'));
@@ -228,6 +258,7 @@ function switchChart(type) {
         loadDataAndDraw(defaultDay.file);
 
     } else if (type === 'flow') {
+        setViewChrome('flow');
         d3.select("#load-matrix-btn").text("Matrix View");
         btn.text("Dot Chart").on("click", () => switchChart('scatter'));
         btnExplorative.text("Explorative Flow").on("click", () => switchChart('explorative'));
@@ -237,6 +268,7 @@ function switchChart(type) {
         initFlowChart();
 
     } else if (type === 'explorative') {
+        setViewChrome('flow');
         d3.select("#load-matrix-btn").text("Matrix View");
         btn.text("Dot Chart").on("click", () => switchChart('scatter'));
         btnExplorative.text("Flow Chart").on("click", () => switchChart('flow'));
@@ -246,12 +278,12 @@ function switchChart(type) {
         initExplorativeFlow();
     }
 }
-
 // ─── Event listeners ──────────────────────────────────────
 const exportBtn = document.getElementById('export-csv-btn');
 if (exportBtn) exportBtn.addEventListener('click', exportAllDaysCSV);
 const matrixBtn = document.getElementById('load-matrix-btn');
 if (matrixBtn) matrixBtn.addEventListener('click', () => {
+    setViewChrome('matrix');
     updateHeaderBadge(null);
     updateTxCount(null);
     initMatrixChart();
