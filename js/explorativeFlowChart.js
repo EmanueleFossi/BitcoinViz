@@ -1070,8 +1070,12 @@ _buildChainPanel() {
         // Position/total always come from the arcs actually navigable via
         // Prev/Next — never from chain metadata that may count hops with no
         // drawable arc. That mismatch was why "TX 2/3" couldn't advance.
-        const navArcs = this._activeChainArcs || [];
-        const pos = this._activeChainIdx + 1;
+       // In peel-candidate mode, navigate/plot the FULL hop sequence
+        // (includes same-hour hops with no drawable arc). Otherwise, fall
+        // back to drawable arcs only, as before.
+        const usingFullHops = this._chainPanelShowSparkline && this._sparklineHops && this._sparklineHops.length;
+        const navArcs = usingFullHops ? this._sparklineHops : (this._activeChainArcs || []);
+        const pos = usingFullHops ? (this._sparklineIdx + 1) : (this._activeChainIdx + 1);
         const total = navArcs.length;
 
         const matched = arc ? this._getMatchedStats(arc) : null;
@@ -1140,8 +1144,19 @@ _buildChainPanel() {
                     ? ` <span style="color:#777">(of ${this._chainTrueTotal} total)</span>` : ''
                 }</div>
                 <div style="color:#aaa">This transaction is: <b style="color:#fff">number ${pos} of ${total}</b></div>
-                ${this._chainPanelShowSparkline ? this._buildSparkline(navArcs, this._activeChainIdx) : ''}
-                <div style="color:#aaa;margin-top:4px;font-size:9px">
+${this._chainPanelShowSparkline ? this._buildSparkline(navArcs, usingFullHops ? this._sparklineIdx : this._activeChainIdx) : ''}
+                ${this._chainPanelShowSparkline ? (() => {
+                    const addrOf = hp => hp.addr || hp.inAddr;
+                    const drawnCount = navArcs.filter(hp => this.hourArcByKey.has(`${hp.hashFrom}|${hp.hashTo}|${addrOf(hp)}`)).length;
+                    const sameHourCount = navArcs.length - drawnCount;
+                    return sameHourCount > 0
+                        ? `<div style="color:#888;font-size:9px;margin-top:2px">
+                             ${drawnCount} hop${drawnCount === 1 ? '' : 's'} drawn as arcs ·
+                             ${sameHourCount} hop${sameHourCount === 1 ? '' : 's'} in the same clock hour as the hop before it
+                             (no separate arc — shown as a hollow dot above, still counted)
+                           </div>`
+                        : '';
+                })() : ''}                <div style="color:#aaa;margin-top:4px;font-size:9px">
                     Each hop = the biggest output of one transaction gets spent again in the next one.
                     The smaller output at each step is the "peeled" amount.
                 </div>
@@ -1169,59 +1184,97 @@ _buildChainPanel() {
             this._showUnplottableHopsNotice(this._chainTrueTotal - total);
         }
     }
-    _gotoHop(delta) {
-        if (!this._activeChainArcs || this._activeChainIdx < 0) return;
-        const newIdx = this._activeChainIdx + delta;
-        if (newIdx < 0 || newIdx >= this._activeChainArcs.length) return;
-        this._activeChainIdx = newIdx;
-        const d = this._activeChainArcs[newIdx];
-        this.selectedArc = d;
-        const tx = this.txMap.get(d.hashFrom);
+  _gotoHop(delta) {
+    // Peel-candidate mode: step through the FULL hop sequence (including
+    // same-hour hops with no drawable arc), using the detector's own
+    // values — so Prev/Next and the sparkline can never disagree again.
+    if (this._chainPanelShowSparkline && this._sparklineHops && this._sparklineHops.length) {
+        const newIdx = this._sparklineIdx + delta;
+        if (newIdx < 0 || newIdx >= this._sparklineHops.length) return;
+        this._sparklineIdx = newIdx;
+        const hop = this._sparklineHops[newIdx];
+
+        // If this hop happens to also have a drawable arc, select/highlight
+        // it on the graph too. Same-hour hops simply won't have one — that's
+        // expected, not an error.
+        const matchingArc = this.hourArcByKey.get(`${hop.hashFrom}|${hop.hashTo}|${hop.addr}`);
+        if (matchingArc) {
+            this.selectedArc = matchingArc;
+            this._activeChainIdx = (this._activeChainArcs || []).findIndex(a => a.key === matchingArc.key);
+        }
+
+        const tx = this.txMap.get(hop.hashFrom);
         const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
-        const destAddr = maxOut ? maxOut.addr : (d.addresses[0]?.addr || "—");
-        this._showChainPanel(d.hashFrom, destAddr, d.btc, d); // isPeelView omitted → keeps current mode
+        const destAddr = maxOut ? maxOut.addr : hop.addr;
+        this._showChainPanel(hop.hashFrom, destAddr, hop.btc, matchingArc || null, true);
+        return;
     }
 
-    _buildSparkline(chainArcs, currentIdx) {
-        if (!chainArcs || chainArcs.length < 2) return '';
-        const w = 286, h = 70, pad = 10, padTop = 14;
-        const vals = chainArcs.map(a => a.btc);
-        const min = Math.min(...vals), max = Math.max(...vals);
+    // Plain arc-click mode (not a peel candidate): unchanged, navigates
+    // drawable arcs only.
+    if (!this._activeChainArcs || this._activeChainIdx < 0) return;
+    const newIdx = this._activeChainIdx + delta;
+    if (newIdx < 0 || newIdx >= this._activeChainArcs.length) return;
+    this._activeChainIdx = newIdx;
+    const d = this._activeChainArcs[newIdx];
+    this.selectedArc = d;
+    const tx = this.txMap.get(d.hashFrom);
+    const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
+    const destAddr = maxOut ? maxOut.addr : (d.addresses[0]?.addr || "—");
+    this._showChainPanel(d.hashFrom, destAddr, d.btc, d);
+}
+_buildSparkline(hops, currentIdx) {
+    if (!hops || hops.length < 2) return '';
+    const w = Math.max(286, hops.length * 12);
+    const h = 70, pad = 10, padTop = 14;
+    const vals = hops.map(hp => hp.btc);
+    const min = Math.min(...vals), max = Math.max(...vals);
 
-        // Peeling chains often shrink across orders of magnitude (e.g. 287 ₿ → 50 ₿
-        // → ... → 0.4 ₿). A linear y-scale squashes every later, smaller hop
-        // against the bottom edge, hiding real differences between them. Log
-        // scale keeps every step visible regardless of how big the first hop
-        // was — same approach already used for arc coloring in this file.
-        const safeMin = Math.max(min, 1e-6);
-        const safeMax = Math.max(max, safeMin * 1.000001);
-        const logMin = Math.log(safeMin), logMax = Math.log(safeMax);
+    const safeMin = Math.max(min, 1e-6);
+    const safeMax = Math.max(max, safeMin * 1.000001);
+    const logMin = Math.log(safeMin), logMax = Math.log(safeMax);
 
-        const x = i => pad + (i / (vals.length - 1)) * (w - pad * 2);
-        const y = v => {
-            const lv = Math.log(Math.max(v, safeMin));
-            return h - pad - ((lv - logMin) / (logMax - logMin || 1)) * (h - pad * 2 - padTop);
-        };
+    const x = i => pad + (i / (vals.length - 1)) * (w - pad * 2);
+    const y = v => {
+        const lv = Math.log(Math.max(v, safeMin));
+        return h - pad - ((lv - logMin) / (logMax - logMin || 1)) * (h - pad * 2 - padTop);
+        return `<div style="overflow-x:auto;overflow-y:hidden;margin:8px 0">
+        <svg width="${w}" height="${h}" style="display:block">
+            <text x="${pad}" y="10" font-size="8" fill="#666">₿${fmtB(max)}</text>
+            <text x="${pad}" y="${h - 1}" font-size="8" fill="#666">₿${fmtB(min)}</text>
+            <polyline points="${pts}" fill="none" stroke="rgba(245,158,11,0.35)" stroke-width="1"/>${dots}
+        </svg>
+    </div>`;
+    };
 
-        const pts = vals.map((v, i) => `${x(i)},${y(v)}`).join(' ');
+    const pts = vals.map((v, i) => `${x(i)},${y(v)}`).join(' ');
 
-        const dots = vals.map((v, i) => {
-            const isCurrent = i === currentIdx;
-            return `<circle cx="${x(i)}" cy="${y(v)}" r="${isCurrent ? 4.5 : 2.5}"
-            fill="${isCurrent ? '#ffffff' : '#F59E0B'}"
-            stroke="${isCurrent ? '#F59E0B' : 'none'}" stroke-width="${isCurrent ? 1.5 : 0}" />`;
-        }).join('');
+    const dots = hops.map((hop, i) => {
+        const isCurrent = i === currentIdx;
+        const addr = hop.addr || hop.inAddr;
+        const hasArc = this.hourArcByKey.has(`${hop.hashFrom}|${hop.hashTo}|${addr}`);
+        if (isCurrent) {
+            return `<circle cx="${x(i)}" cy="${y(hop.btc)}" r="4.5" fill="#ffffff" stroke="#F59E0B" stroke-width="1.5" />`;
+        }
+        // Filled = this hop has its own drawn arc on the graph.
+        // Hollow = same clock hour as its prior hop — no separate arc
+        // exists, but the hop is real and still plotted here.
+        return hasArc
+            ? `<circle cx="${x(i)}" cy="${y(hop.btc)}" r="2.5" fill="#F59E0B" />`
+            : `<circle cx="${x(i)}" cy="${y(hop.btc)}" r="2.5" fill="none" stroke="#F59E0B" stroke-width="1.2" />`;
+    }).join('');
 
-        const fmtB = v => v >= 1 ? v.toFixed(v >= 100 ? 0 : 2) : v.toFixed(4);
+    const fmtB = v => v >= 1 ? v.toFixed(v >= 100 ? 0 : 2) : v.toFixed(4);
 
-     return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}"
+    return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}"
                  preserveAspectRatio="xMidYMid meet"
                  style="display:block;margin:8px 0;max-width:100%">
         <text x="${pad}" y="10" font-size="8" fill="#666">₿${fmtB(max)}</text>
         <text x="${pad}" y="${h - 1}" font-size="8" fill="#666">₿${fmtB(min)}</text>
         <polyline points="${pts}" fill="none" stroke="rgba(245,158,11,0.35)" stroke-width="1"/>${dots}
     </svg>`;
-    }
+}
+
     _drawLegend(arcs, granularity) {
         this.svgEl.selectAll(".ef-legend").remove(); // no more SVG-drawn legend
 
@@ -1463,32 +1516,46 @@ _buildPeelPanel() {
             this._highlightPeelCandidate(this._peelCandidates[idx]);
         });
     }
+_highlightPeelCandidate(candidate) {
+    if (!candidate || !candidate.arcs.length) return;
 
-    _highlightPeelCandidate(candidate) {
-        if (!candidate || !candidate.arcs.length) return;
+    // The detector's own verified sequence — every hop, in order, with
+    // btc values guaranteed non-increasing by construction. This is the
+    // ONLY source the sparkline should ever read from.
+    const fullHops = candidate.arcs;
 
-        const runArcs = candidate.arcs
-            .map(hop => this.hourArcByKey.get(`${hop.hashFrom}|${hop.hashTo}|${hop.addr}`))
-            .filter(Boolean);
+    // Drawable arcs only — used for on-graph highlighting. Some hops have
+    // no drawable arc at all (origin & spend land in the same clock-hour
+    // bucket — see the same-bucket guard in _aggregateData).
+    const runArcs = fullHops
+        .map(hop => this.hourArcByKey.get(`${hop.hashFrom}|${hop.hashTo}|${hop.addr}`))
+        .filter(Boolean);
 
-        const totalHops = candidate.arcs.length;
-        if (!runArcs.length) return;
+    if (!runArcs.length) return;
 
-        this._suppressDeselect = true;
-        this.selectedArc = runArcs[0];
-        this._activeChainIdx = 0;
-        this._chainTrueTotal = totalHops;
+    this._suppressDeselect = true;
+    this.selectedArc = runArcs[0];
+    this._activeChainIdx = 0;
+    this._chainTrueTotal = fullHops.length;
 
-        this._drawChainArcsOnly(runArcs);
-        this._centerOnArc(runArcs[0]); 
+    // Kept separate from _activeChainArcs so graph highlighting/clicking
+    // keeps working exactly as before — this is purely for the sparkline
+    // and Prev/Next-through-all-hops.
+    this._sparklineHops = fullHops;
+    this._sparklineIdx = 0;
 
-        const first = runArcs[0];
-        const tx = this.txMap ? this.txMap.get(first.hashFrom) : null;
-        const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
-        const destAddr = maxOut ? maxOut.addr : (first.addresses?.[0]?.addr || "—");
+    this._drawChainArcsOnly(runArcs);
+    this._centerOnArc(runArcs[0]);
 
-        this._showChainPanel(first.hashFrom, destAddr, first.btc, first, true);
-    }
+    const first = runArcs[0];
+    const tx = this.txMap ? this.txMap.get(first.hashFrom) : null;
+    const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
+    const destAddr = maxOut ? maxOut.addr : (first.addresses?.[0]?.addr || "—");
+
+    // Use the hop's OWN btc value (fullHops[0].btc), not the arc's
+    // aggregated value — this is the fix for the mismatch.
+    this._showChainPanel(first.hashFrom, destAddr, fullHops[0].btc, first, true);
+}
 }
 function efFmtDay(dateStr) {
     const [y, m, d] = dateStr.split("-").map(Number);
