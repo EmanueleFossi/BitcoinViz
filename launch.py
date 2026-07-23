@@ -10,16 +10,16 @@ def start_server():
 t = threading.Thread(target=start_server, daemon=True)
 t.start()
 
-print("Avvio server...")
+print("Starting server...")
 time.sleep(1.5)
 
-print("Apertura browser su http://localhost:5501")
+print("Opening browser at http://localhost:5501")
 webbrowser.open("http://localhost:5501")
 
-print("App avviata! Premi Ctrl+C per chiudere.\n")
+print("App started! Press Ctrl+C to close.\n")
 
 try:
     while True:
         time.sleep(1)
 except KeyboardInterrupt:
-    print("\nServer chiuso.")
+    print("\nServer close.")
