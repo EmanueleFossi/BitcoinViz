@@ -24,39 +24,26 @@ async function initExplorativeFlow(focusAddress) {
     chartArea.append("p").attr("class","loading-text").text("Loading UTXO flow data…");
 
     try {
-        const raw = await d3.csv(`${EF_CSV}?t=${Date.now()}`, d => {
-            let timeStr = d.time ? d.time.trim() : "";
-            if (!timeStr) return null;
 
-            let parsedDate;
-            if (timeStr.includes("T") || timeStr.includes("Z")) {
-                parsedDate = new Date(timeStr);
-            } else if (timeStr.includes(" ")) {
-                parsedDate = new Date(timeStr.replace(" ", "T") + "Z");
-            } else {
-                parsedDate = new Date(timeStr + "T00:00:00Z");
-            }
-
-            if (isNaN(parsedDate.getTime())) parsedDate = new Date(timeStr);
-            if (isNaN(parsedDate.getTime())) {
-                console.warn("Data non valida, riga saltata:", d.time);
-                return null;
-            }
-
-           return {
-    hash:        d.transaction_hash ? d.transaction_hash.trim() : "unknown",
-    time:        parsedDate,
-    btc_out:    +d.output_value_BTC || 0,
-    out_address: d.output_address ? d.output_address.trim() : "unknown",
-    tx_inputs:  +d.transaction_inputs || 0,
-    btc_in:     +d.total_input_value_BTC || 0,
-    in_addresses: (d.input_addresses || "")
-                    .split(",").map(a => a.trim()).filter(a => a.length > 0)
+        const savedFilters = getLastFilterParams();
+if (!savedFilters) {
+    chartArea.html(`<p style="color:#F59E0B;padding:16px">
+        No filtered dataset yet — set filters on Dot Chart and click "Export CSV" first.
+    </p>`);
+    return;
 }
-        });
 
-        const cleanedRaw = raw.filter(Boolean);
-        if (!cleanedRaw.length) throw new Error("Nessun dato temporale valido trovato.");
+const apiRows = await loadTransactions(savedFilters);
+const cleanedRaw = apiRows.map(d => ({
+    hash:         d.transaction_hash ? d.transaction_hash.trim() : "unknown",
+    time:         d.time,
+    btc_out:      +d.output_value_BTC || 0,
+    out_address:  d.output_address ? d.output_address.trim() : "unknown",
+    tx_inputs:    +d.transaction_inputs || 0,
+    btc_in:       +d.total_input_value_BTC || 0,
+    in_addresses: (d.input_addresses || "").split(",").map(a => a.trim()).filter(a => a.length > 0)
+}));
+if (!cleanedRaw.length) throw new Error("No valid temporal data found in the filtered dataset — check your filters and try again.");
 
    chartArea.selectAll("*").remove();
         d3.select("#ef-legend-footer").remove();
@@ -76,9 +63,9 @@ async function initExplorativeFlow(focusAddress) {
             .html(`
                 <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
                     <span><b style="color:#265F91">●</b> Blue = aggregated TXs</span>
-                    <span><b style="color:#1B7A70">●</b> Teal = single TX</span>
+                    <span><b style="color:#1B7A70">●</b> Teal = Single address-link flow</span>
                     <span>darker = more BTC</span>
-                    <span title="A point in time where funds arrived or moved on">Circle = node</span>
+                    <span title="A point in time where funds arrived or moved on">Circle = transaction time</span>
                     <span title="The chain trace shown after clicking an arc"><b style="color:#EC4899">●</b> Pink = selected chain</span>
                     <span title="A run shown after Run Detection"><b style="color:#F59E0B">●</b> Amber = peeling chain candidate</span>
                 </div>
@@ -338,10 +325,10 @@ function fpApply() {
             <div class="fp-check-row">
                 <input type="checkbox" id="fp-forcehour-enabled" />
                 <label for="fp-forcehour-enabled" style="font-size:11px;cursor:pointer">
-                    One transaction per edge
+                    One address-link per edge
                 </label>
             </div>
-            <div class="fp-hint">per transaction view is helpful in detecting peeling chains</div>
+            <div class="fp-hint">Each edge is one address's link between two transactions (not the whole transaction) — helpful for detecting peeling chains</div>
         </div>
 
  <div class="fp-section" id="fp-peel-section">
@@ -356,6 +343,10 @@ function fpApply() {
                 <input type="number" id="fp-peel-minlen-input" value="3" min="2" style="width:70px" />
                 <span style="font-size:10px;color:var(--text-hint)">hops</span>
             </div>
+            <div class="fp-check-row">
+    <input type="checkbox" id="fp-peel-decreasing" checked />
+    <label for="fp-peel-decreasing" style="font-size:10px;cursor:pointer">Require shrinking amount per hop</label>
+</div>
             <div class="fp-hint">
                 A hop only counts as a "clean peel" if the largest output keeps at least this %
                 of the transaction's total input value, and each hop's amount is smaller than the last.
@@ -416,7 +407,8 @@ function syncPeelAvailability() {
         if (!chart.forceHourly) return;
         const retainPct = Math.min(1, Math.max(0.5, (+document.getElementById('fp-peel-retain-input').value || 90) / 100));
         const minLen     = Math.max(2, +document.getElementById('fp-peel-minlen-input').value || 3);
-        const results    = chart._detectPeelingChainCandidates(minLen, retainPct);
+        const requireDecreasing = document.getElementById('fp-peel-decreasing').checked;
+const results = chart._detectPeelingChainCandidates(minLen, retainPct, requireDecreasing);
         chart._showPeelResults(results);
     });
     // Auto-apply on every threshold control — no separate "Apply" button.

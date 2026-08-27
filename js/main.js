@@ -42,21 +42,7 @@ function setViewChrome(view) {
         el.style.display = isCluster ? '' : 'none';
     });
 }
-// Shows/hides chrome that only makes sense on the cluster (dot-plot) screen:
-// the Day dropdown, the TX-found/Apply/Export footer, and the >500/100-500/<100 BTC chips.
-function setViewChrome(view) {
-    const isCluster = view === 'cluster';
 
-    const daySection = document.getElementById('sb-day-section');
-    if (daySection) daySection.style.display = isCluster ? '' : 'none';
-
-    const footer = document.querySelector('.sb-footer');
-    if (footer) footer.style.display = isCluster ? '' : 'none';
-
-    document.querySelectorAll('.viz-chip').forEach(el => {
-        el.style.display = isCluster ? '' : 'none';
-    });
-}
 
 // ─── Init app ─────────────────────────────────────────────
 // Usa data_cleaned/ come path (Doc 2), coerente con loadDataAndDraw
@@ -95,11 +81,10 @@ async function loadDataAndDraw(fileName) {
         .text(`Analyzing ${fileName}...`);
 
     try {
-        const rawData = await d3.csv(`data_cleaned/${fileName}`, parseRow);
-        const cleanData = rawData.filter(d => d.transaction_hash);
-        loadingMsg.remove();
-
-        if (cleanData.length === 0) throw new Error("Not found or empty data");
+    const cleanData = await loadTransactions({ day: fileName });
+    loadingMsg.remove();
+    if (cleanData.length === 0) throw new Error("Not found or empty data");
+       
 
         if (currentType === 'scatter') {
             filterContainer.selectAll("*").remove();
@@ -148,27 +133,28 @@ async function exportAllDaysCSV() {
     const originalLabel = exportBtn.textContent;
     exportBtn.disabled = true;
     exportBtn.textContent = "Exporting...";
+try {
+    const params = filterManager.getFilterParams();
+    const bodyObj = {
+        startDate:           params.startDate,
+        endDate:             params.endDate,
+        minSingleOutput:     params.minSingleOutput,
+        maxSingleOutput:     params.maxSingleOutput,
+        minMinOutput:        params.minMinOutput,
+        maxMinOutput:        params.maxMinOutput,
+        minInputs:           params.filterState.minInputs,
+        maxInputs:           params.filterState.maxInputs,
+        minOutputs:          params.filterState.minOutputs,
+        maxOutputs:          params.filterState.maxOutputs,
+        onlySpentInPeriod:   params.onlySpentInPeriod,
+    };
+    saveLastFilterParams(bodyObj);   // NEW — remembers filters for Matrix/ExplorativeFlow
 
-    try {
-        const params = filterManager.getFilterParams();
-
-        const response = await fetch("http://localhost:5501/export", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-               unbalancedThreshold: params.unbalancedThreshold,
-                topRatioThreshold:   params.topRatioThreshold,
-                minSingleOutput:     params.minSingleOutput,
-                maxSingleOutput:     params.maxSingleOutput,
-                minMinOutput:        params.minMinOutput,
-                maxMinOutput:        params.maxMinOutput,   // NEW
-                minInputs:           params.filterState.minInputs,
-                maxInputs:           params.filterState.maxInputs,
-                minOutputs:          params.filterState.minOutputs,
-                maxOutputs:          params.filterState.maxOutputs,
-                onlySpentInPeriod:   params.onlySpentInPeriod,
-            })
-        });
+    const response = await fetch("http://localhost:5501/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bodyObj)
+    });
 
         const result = await response.json();
 
@@ -216,7 +202,7 @@ function updateTxCount(n) {
 }
 
 // ─── Switch chart ─────────────────────────────────────────
-// Modalità supportate: 'scatter' | 'flow' | 'explorative'
+
 function switchChart(type) {
     currentType = type;
     chartInstance = null;
@@ -234,9 +220,8 @@ function switchChart(type) {
 
     if (type === 'scatter') {
         setViewChrome('cluster');
-        d3.select("#load-matrix-btn").text("Matrix View");
-        btn.text("Flow Chart").on("click", () => switchChart('flow'));
-        btnExplorative.text("Explorative Flow").on("click", () => switchChart('explorative'));
+        btn.text("Bubble Chart").on("click", () => switchChart('scatter'));
+        btnExplorative.text("Linear Flow Chart").on("click", () => switchChart('explorative'));
 
         const select = controls.append("select")
             .attr("class", "day-selector")
@@ -257,21 +242,10 @@ function switchChart(type) {
         updateHeaderBadge(defaultDay.label);
         loadDataAndDraw(defaultDay.file);
 
-    } else if (type === 'flow') {
-        setViewChrome('flow');
-        d3.select("#load-matrix-btn").text("Matrix View");
-        btn.text("Dot Chart").on("click", () => switchChart('scatter'));
-        btnExplorative.text("Explorative Flow").on("click", () => switchChart('explorative'));
-
-        updateHeaderBadge(null);
-        updateTxCount(null);
-        initFlowChart();
-
     } else if (type === 'explorative') {
         setViewChrome('flow');
-        d3.select("#load-matrix-btn").text("Matrix View");
-        btn.text("Dot Chart").on("click", () => switchChart('scatter'));
-        btnExplorative.text("Flow Chart").on("click", () => switchChart('flow'));
+        btn.text("Bubble Chart").on("click", () => switchChart('scatter'));
+        btnExplorative.text("Linear Flow Chart").on("click", () => switchChart('explorative'));
 
         updateHeaderBadge(null);
         updateTxCount(null);
@@ -281,13 +255,7 @@ function switchChart(type) {
 // ─── Event listeners ──────────────────────────────────────
 const exportBtn = document.getElementById('export-csv-btn');
 if (exportBtn) exportBtn.addEventListener('click', exportAllDaysCSV);
-const matrixBtn = document.getElementById('load-matrix-btn');
-if (matrixBtn) matrixBtn.addEventListener('click', () => {
-    setViewChrome('matrix');
-    updateHeaderBadge(null);
-    updateTxCount(null);
-    initMatrixChart();
-});
+
 
 // ─── Avvio ────────────────────────────────────────────────
 initApp();

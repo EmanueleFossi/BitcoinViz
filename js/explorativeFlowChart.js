@@ -25,6 +25,7 @@ class ExplorativeFlowChart {
         // Only true when the panel was opened from a detected peeling-chain
         // candidate (Run Detection), never from a plain arc click.
         this._chainPanelShowSparkline = false;
+        this._sparklineDayView = false; // false = hour view (default), true = day view
         // Holds whatever was last passed to applyFilters(). Starts at "no restriction"
         // defaults, so before the analyst touches any filter, everything passes through
         // unchanged — and _detectPeelingChainCandidates() always reads from this same
@@ -221,19 +222,21 @@ class ExplorativeFlowChart {
         this.txInputMap = txMap; // NEW — has tx_inputs, btc_in, outputs per hash
 
     }
+
     _precomputeAllLevels() {
         this.levels = {
             day: this._aggregateData("day"),
+            "6h": this._aggregateData("6h"),
+            "3h": this._aggregateData("3h"),
+            "1h": this._aggregateData("1h"),
             hour: this._aggregateData("hour")
         };
-        this.filteredLevels = {
-            day: [...this.levels.day],
-            hour: [...this.levels.hour]
-        };
-        this._assignLayers(this.levels.day);
-        this._assignLayers(this.levels.hour);
+        this.filteredLevels = {};
+        Object.keys(this.levels).forEach(k => {
+            this.filteredLevels[k] = [...this.levels[k]];
+            this._assignLayers(this.levels[k]);
+        });
         this.hourArcByKey = new Map(this.levels.hour.map(a => [a.key, a]));
-
     }
 
     _aggregateData(granularity) {
@@ -257,23 +260,24 @@ class ExplorativeFlowChart {
         outputsByAddress.forEach(list => list.sort((a, b) => a.time - b.time));
 
         const spentOutputs = new Set();
-
+const BUCKET_HOURS = { day: 24, "6h": 6, "3h": 3, "1h": 1 };
         const getBucketInfo = (dateObj) => {
             const y = dateObj.getUTCFullYear();
             const m = String(dateObj.getUTCMonth() + 1).padStart(2, '0');
             const d = String(dateObj.getUTCDate()).padStart(2, '0');
             const H = dateObj.getUTCHours();
-            if (granularity === "day") {
-                return {
-                    key: `${y}-${m}-${d}`,
-                    centerTime: new Date(Date.UTC(y, dateObj.getUTCMonth(), dateObj.getUTCDate(), 12, 0, 0))
-                };
-            } else {
+            if (granularity === "hour") {
                 return {
                     key: `${y}-${m}-${d}-${String(H).padStart(2, '0')}`,
                     centerTime: new Date(Date.UTC(y, dateObj.getUTCMonth(), dateObj.getUTCDate(), H, 0, 0))
                 };
             }
+            const bh = BUCKET_HOURS[granularity];
+            const bStart = Math.floor(H / bh) * bh;
+            return {
+                key: `${y}-${m}-${d}-${granularity}-${bStart}`,
+                centerTime: new Date(Date.UTC(y, dateObj.getUTCMonth(), dateObj.getUTCDate(), bStart + bh / 2, 0, 0))
+            };
         };
 
         sortedTransactions.forEach(tx => {
@@ -285,9 +289,9 @@ class ExplorativeFlowChart {
                 const spendBucket = getBucketInfo(tx.time);
                 if (originBucket.key === spendBucket.key) return;
 
-                const arcKey = granularity === "day"
-                    ? `${originBucket.key}|${spendBucket.key}`
-                    : `${origin.hash}|${tx.hash}|${inAddr}`;
+                const arcKey = granularity === "hour"
+                    ? `${origin.hash}|${tx.hash}|${inAddr}`
+                    : `${originBucket.key}|${spendBucket.key}`;
                 const changeOutput = tx.outputs.find(o => o.addr === inAddr);
                 const volumeBtc = changeOutput ? changeOutput.btc : origin.btc;
                 const hops = this.txHopMap.get(origin.hash) || 0;
@@ -331,7 +335,6 @@ class ExplorativeFlowChart {
             }
         });
     }
-
     _getArcHlColor(arc) {
         if (!this.hlColorMap || this.hlColorMap.size === 0) return null;
         for (const [query, color] of this.hlColorMap) {
@@ -443,7 +446,7 @@ _buildSVG() {
             .range([this.margin.left, this.svgW - this.margin.right]);
         this.currentX = this.xScale;
 
-        const allArcs = [...this.levels.day, ...this.levels.hour];
+const allArcs = Object.values(this.levels).flat();
         const btcExt = d3.extent(allArcs, a => a.btc);
         const btcMin = Math.max(btcExt[0], 0.0001);
         const btcMax = btcExt[1];
@@ -485,7 +488,7 @@ _buildSVG() {
             .call(g => g.selectAll(".tick line").attr("stroke", "rgba(255,255,255,0.2)"))
             .call(g => g.selectAll(".tick text").attr("fill", "#888").attr("font-size", "10px").attr("dy", "1.2em"));
 
-        this.gGrid.selectAll("line.vgrid").data(x.ticks(tickCount)).join("line")
+     this.gGrid.selectAll("line.vgrid").data(x.ticks(tickCount)).join("line")
             .attr("class", "vgrid")
             .attr("x1", t => x(t)).attr("x2", t => x(t))
             .attr("y1", this.margin.top).attr("y2", this.svgH - this.margin.bottom)
@@ -497,8 +500,13 @@ _buildSVG() {
     if (k <= 15) return "3 hour";
     return "1 hour";
 }
-
-    _visibleArcs(arcs) {
+_pickAggGranularity(k) {
+        if (k <= this.THRESHOLD_HOUR) return "day";
+        if (k <= 8) return "6h";
+        if (k <= 15) return "3h";
+        return "1h";
+    }   
+ _visibleArcs(arcs) {
         const [domStart, domEnd] = this.currentX.domain();
         return arcs.filter(a =>
             (a.time_from >= domStart && a.time_from <= domEnd) ||
@@ -516,28 +524,60 @@ _buildSVG() {
         // (see _renderAxis) and how much of the individual-tx set gets rendered
         // below. This makes the mode sticky across zooming, and makes both
         // modes available at any zoom level.
-      const windowLabel = this._zoomWindowLabel(k);
+     const windowLabel = this._zoomWindowLabel(k);
        const atMaxZoom = k >= 17.5;
+const GRAN_LABELS = { day: "24-hour", "6h": "6-hour", "3h": "3-hour", "1h": "1-hour" };
         if (this.forceHourly) {
             currentGranularity = "hour"; opHour = 0.85;
             this.hintBar.text(`Resolution: Individual transactions — ${windowLabel} window` +
                 (atMaxZoom ? " (maximum — data has no finer time resolution)" : ""));
         } else {
-            currentGranularity = "day"; opDay = 0.85;
-            this.hintBar.text(`Resolution: Daily — flows aggregated by day (${windowLabel} zoom level)`);
+            currentGranularity = this._pickAggGranularity(k); opDay = 0.85;
+            this.hintBar.text(`Resolution: flows aggregated by ${GRAN_LABELS[currentGranularity]} windows`);
         }
 
         const thr = this.btcThreshold || 0;
         const byThr = arcs => thr > 0 ? arcs.filter(a => a.btc >= thr) : arcs;
 
-        const dayArcs = byThr(this.filteredLevels.day);
+       const dayArcs = this.forceHourly ? [] : byThr(this.filteredLevels[currentGranularity]);
         // Only build individual-tx arcs when that mode is actually active.
         // _visibleArcs restricts to the current viewport for performance —
         // harmless at k=1 since the visible domain is already the full range there.
         const hourArcs = this.forceHourly
             ? this._visibleArcs(byThr(this.filteredLevels.hour))
             : [];
+      const renderedArcs = this.forceHourly ? hourArcs : dayArcs;
+        this._arcHeightMap = new Map();
+        if (renderedArcs.length) {
+            const loBound = this.margin.left, hiBound = this.svgW - this.margin.right;
+            const clip = px => Math.max(loBound, Math.min(hiBound, px));
+            const visSpan = a => Math.abs(clip(x(a.time_from)) - clip(x(a.time_to)));
 
+            const maxH = this._halfH, minH = 32;
+            // Arcs covering ≥60% of the visible width are "wide/pass-through" —
+            // their true endpoints are mostly off-screen, so they all measure
+            // nearly the same visible span. Splitting them into their own band
+            // stops them collapsing onto one crowded height and fills the
+            // rest of the space with the (much more numerous) local arcs.
+            const wideThreshold = this.innerW * 0.6;
+            const localArcs = [], wideArcs = [];
+            renderedArcs.forEach(a => (visSpan(a) >= wideThreshold ? wideArcs : localArcs).push(a));
+
+            // Two independent height bands — each group always uses its
+            // FULL assigned range, no matter how many arcs are in it.
+            const splitH = minH + (maxH - minH) * 0.55;
+
+            const assign = (arr, hLo, hHi) => {
+                if (!arr.length) return;
+                const sorted = [...arr].sort((a, b) => visSpan(a) - visSpan(b));
+                sorted.forEach((a, i) => {
+                    const t = sorted.length > 1 ? i / (sorted.length - 1) : 1;
+                    this._arcHeightMap.set(a.key, hLo + t * (hHi - hLo));
+                });
+            };
+            assign(localArcs, minH, splitH);
+            assign(wideArcs, splitH, maxH);
+        }
         this._renderArcLayer("day-arcs", dayArcs, opDay, x);
         this._renderArcLayer("hour-arcs", hourArcs, opHour, x);
 
@@ -548,6 +588,10 @@ _buildSVG() {
         }
 
         this._syncNodePositions(x);
+        
+this.gNode.selectAll(".node-date-label")
+    .style("display", (this._lastK || 1) > 15 ? null : "none");
+this._drawLegend(activeArcs, currentGranularity);
         this._drawLegend(activeArcs, currentGranularity);
 
 
@@ -558,35 +602,22 @@ _buildSVG() {
             const self = this, axisY = this._axisY;
             this.gChain.selectAll("path.chain-arc").attr("d", d => {
                 const x1 = x(d.time_from), x2 = x(d.time_to);
-                return self._arcPath(x1, x2, self._arcHeight(x1, x2, self._hashOffset(d.key)), axisY, d._side || 1);
-            });
+return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1);            });
         }
     }
+    _arcHeight(x1, x2, key) {
+        return (this._arcHeightMap && this._arcHeightMap.get(key)) ?? 32;
+    }
 
-   _arcHeight(x1, x2, offset = 0) {
-    const distance = Math.abs(x2 - x1);
-    const maxH = this._halfH;
-    const distanceH = distance * 0.55;
-    // Closely-spaced (hourly) arcs would otherwise stay tiny even in a tall
-    // container, since height was driven almost entirely by x-distance.
-    // This floor guarantees every arc uses a healthy share of the vertical
-    // room actually available, so the chart fills its container instead of
-    // leaving empty space above/below regardless of zoom/node spacing.
-    const floorH = maxH * 0.35;
-    const baseH = Math.max(floorH, Math.min(distanceH, maxH * 0.92));
-    return Math.max(32, Math.min(baseH + offset, maxH));
+
+
+_arcPath(x1, x2, h, axisY, side = 1) {
+    const startY = axisY - this.NODE_R * side;
+    const compensatedH = h / 0.75;   // pushes the control point further out so the
+                                       // curve's ACTUAL visual peak lands at h, not 0.75×h
+    const cy = axisY - compensatedH * side;
+    return `M${x1},${startY} C${x1},${cy} ${x2},${cy} ${x2},${startY}`;
 }
-    _hashOffset(key, maxOffset = 18) {
-        let hash = 0;
-        for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0;
-        return Math.abs(hash) % maxOffset;
-    }
-    _arcPath(x1, x2, h, axisY, side = 1) {
-        const startY = axisY - this.NODE_R * side;
-        const cy = axisY - h * side;
-        return `M${x1},${startY} C${x1},${cy} ${x2},${cy} ${x2},${startY}`;
-    }
-
     _highlightChain(arc) {
         this.gChain.selectAll("*").remove();
 
@@ -654,8 +685,7 @@ _buildSVG() {
             .attr("opacity", 0)
             .attr("d", d => {
                 const x1 = x(d.time_from), x2 = x(d.time_to);
-                return self._arcPath(x1, x2, self._arcHeight(x1, x2, self._hashOffset(d.key)), axisY, d._side || 1);
-            })
+return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1);            })
             .style("cursor", "pointer")
             .on("mouseenter", function (event, d) { self._showTooltip(event, d); })
             .on("mousemove", function (event) {
@@ -705,8 +735,7 @@ _buildSVG() {
             .attr("opacity", 0)
             .attr("d", d => {
                 const x1 = x(d.time_from), x2 = x(d.time_to);
-                return self._arcPath(x1, x2, self._arcHeight(x1, x2, self._hashOffset(d.key)), axisY, d._side || 1);
-            })
+return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1);            })
             .style("cursor", "pointer")
             .on("mouseenter", function (event, d) { self._showTooltip(event, d); })
             .on("mousemove", function (event) {
@@ -747,8 +776,7 @@ _buildSVG() {
                 .attr("data-op", opacity)
                 .attr("d", d => {
                     const x1 = x(d.time_from), x2 = x(d.time_to);
-                    return self._arcPath(x1, x2, self._arcHeight(x1, x2, self._hashOffset(d.key)), axisY, d._side || 1);
-                })
+return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1);                })
                 .attr("stroke", d => self._getArcHlColor(d) || scale(d.btc))          // CHANGED
 
                 .attr("stroke-width", d => self._getArcHlColor(d) ? 4 : 2.5)
@@ -771,8 +799,7 @@ _buildSVG() {
             mergedHit
                 .attr("d", d => {
                     const x1 = x(d.time_from), x2 = x(d.time_to);
-                    return self._arcPath(x1, x2, self._arcHeight(x1, x2, self._hashOffset(d.key)), axisY, d._side || 1);
-                })
+return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1);                })
                 .attr("stroke-width", 18)
                 .style("cursor", opacity > 0 ? "pointer" : "default")
                 .style("pointer-events", opacity > 0 ? "stroke" : "none");
@@ -845,33 +872,31 @@ _buildSVG() {
     }
 
     _showTooltip(event, d) {
-        const isDay = (this.lastGranularity || 'day') === 'day';
+        const isDay = (this.lastGranularity || 'day') !== 'hour';
         this.tip.style("opacity", 1)
             .style("left", (event.clientX + 15) + "px")
             .style("top", (event.clientY - 15) + "px")
             .html(isDay ? this._tooltipDay(d) : this._tooltipHour(d));
     }
 
-    _tooltipDay(d) {
-        const dateFrom = d.fromKey;
-        const dateTo = d.toKey;
-        const [yf, mf, df] = dateFrom.split("-").map(Number);
-        const [yt, mt, dt] = dateTo.split("-").map(Number);
+  _tooltipDay(d) {
         const M = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        const labelFrom = `${df} ${M[mf - 1]} ${yf}`;
-        const labelTo = `${dt} ${M[mt - 1]} ${yt}`;
+        const fmtDT = (dt) => `${dt.getUTCDate()} ${M[dt.getUTCMonth()]} ${dt.getUTCFullYear()}` +
+            (this.lastGranularity !== 'day' ? ` ${String(dt.getUTCHours()).padStart(2,'0')}:00` : '');
+        const labelFrom = fmtDT(d.fromCenterTime);
+        const labelTo = fmtDT(d.toCenterTime);
         const hlColor = this._getArcHlColor(d);
         const matched = this._getMatchedStats(d);
         return `
             <div style="font-weight:700;color:${hlColor || '#EC4899'};margin-bottom:6px">
-                Daily flow
+                ${this.lastGranularity} flow
                 <span style="font-size:9px;color:#888;font-weight:400;margin-left:6px">(click to trace chain)</span>
             </div>
-            <div style="margin-bottom:2px;font-size:10px;color:#aaa">${labelFrom} → ${labelTo}</div>
-            <div style="margin-bottom:2px">Combined volume: <b style="color:#fff">₿ ${d.btc.toFixed(4)}</b></div>
+            <div style="margin-bottom:2px;font-size:10px;color:#555">${labelFrom} → ${labelTo}</div>
+            <div style="margin-bottom:2px">Combined volume: <b style="color:#1a1a1a">₿ ${d.btc.toFixed(4)}</b></div>
             <div style="margin-bottom:2px">Individual flows combined here: <b style="color:#3B82F6">${d.count}</b></div>
             ${matched ? `
-            <div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.1)">
+            <div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,0.12)">
                 <div style="color:${hlColor};font-size:10px">Your searched address's share:</div>
                 <div>₿ ${matched.btc.toFixed(4)} across ${matched.count} of the ${d.count} flows above</div>
             </div>` : ''}
@@ -883,12 +908,12 @@ _buildSVG() {
         const tx = this.txMap ? this.txMap.get(d.hashFrom) : null;
         const timeStr = tx ? d3.timeFormat("%d %b %Y, %H:%M UTC")(tx.time) : '—';
         return `
-            <div style="font-weight:700;color:${hlColor || '#EC4899'};margin-bottom:6px">
-                Single transaction flow
+           <div style="font-weight:700;color:${hlColor || '#EC4899'};margin-bottom:6px">
+                Single address-link flow
                 <span style="font-size:9px;color:#888;font-weight:400;margin-left:6px">(click to trace chain)</span>
             </div>
-            <div style="margin-bottom:2px;font-size:10px;color:#aaa">${timeStr}</div>
-            <div style="margin-bottom:2px">Volume: <b style="color:#fff">₿ ${d.btc.toFixed(4)}</b></div>
+            <div style="margin-bottom:2px;font-size:10px;color:#555">${timeStr}</div>
+            <div style="margin-bottom:2px">Volume: <b style="color:#1a1a1a">₿ ${d.btc.toFixed(4)}</b></div>
             <div style="margin-bottom:2px">
                 Position: <b style="color:#3B82F6">TX ${d.chainLen - d.hops} of ${d.chainLen}</b>
                 <span style="color:#555;font-size:9px">(in this chain)</span>
@@ -907,22 +932,29 @@ _buildSVG() {
             if (!nodeMap.has(a.toKey)) nodeMap.set(a.toKey, { key: a.toKey, time: a.toCenterTime });
         });
 
+      const nodeList = Array.from(nodeMap.values()).sort((a, b) => a.time - b.time);
         const entered = this.gNode.selectAll("g.ef-node")
-            .data(Array.from(nodeMap.values()), d => d.key)
+            .data(nodeList, d => d.key)
             .enter().append("g").attr("class", "ef-node");
 
-        // Plain ring — no ₿ glyph inside (was visually noisy/confusing).
+      // Plain ring — no ₿ glyph inside (was visually noisy/confusing).
         entered.append("circle")
             .attr("r", this.NODE_R)
             .attr("fill", "rgba(247,147,26,0.12)")
             .attr("stroke", "#F7931A").attr("stroke-width", 1.2);
-
-        entered.append("text")
-            .attr("class", "node-label")
-            .attr("y", -(this.NODE_R + 6))
-            .attr("text-anchor", "middle")
-            .attr("font-size", "10px").attr("fill", "#ddd")
-            .text(d => granularity === "day" ? efFmtDay(d.key) : efFmtHour(d.key));
+            const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+let lastDateStr = null;
+entered.append("text")
+    .attr("class", "node-date-label")
+    .attr("y", -(this.NODE_R + 6))
+    .attr("text-anchor", "middle")
+    .attr("font-size", "10px").attr("font-weight", "700").attr("fill", "#F7931A")
+    .text(d => {
+        const dateStr = `${d.time.getUTCDate()} ${M[d.time.getUTCMonth()]}`;
+        if (dateStr === lastDateStr) return "";
+        lastDateStr = dateStr;
+        return dateStr;
+    });
     }
     _ensureChainNodes(chainArcs) {
         const existing = new Set();
@@ -935,24 +967,31 @@ _buildSVG() {
         });
         if (!toAdd.size) return;
 
-        const granularity = this.lastGranularity || 'day';
+       const granularity = this.lastGranularity || 'day';
+        const nodeListNew = Array.from(toAdd.values()).sort((a, b) => a.time - b.time);
         const entered = this.gNode.selectAll("g.ef-node")
-            .data(Array.from(toAdd.values()), d => d.key)
+            .data(nodeListNew, d => d.key)
             .enter().append("g").attr("class", "ef-node");
 
+     // Plain ring — no ₿ glyph inside (was visually noisy/confusing).
         entered.append("circle")
             .attr("r", this.NODE_R)
             .attr("fill", "rgba(247,147,26,0.12)")
             .attr("stroke", "#F7931A").attr("stroke-width", 1.2);
 
-        entered.append("text")
-            .attr("class", "node-label")
-            .attr("y", -(this.NODE_R + 6))
-            .attr("text-anchor", "middle")
-            .attr("font-size", "10px").attr("fill", "#ddd")
-            .text(d => granularity === "day" ? efFmtDay(d.key) : efFmtHour(d.key));
-
-        this._syncNodePositions(this.currentX);
+const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+let lastDateStr2 = null;
+entered.append("text")
+    .attr("class", "node-date-label")
+    .attr("y", -(this.NODE_R + 6))
+    .attr("text-anchor", "middle")
+    .attr("font-size", "10px").attr("font-weight", "700").attr("fill", "#F7931A")
+    .text(d => {
+        const dateStr = `${d.time.getUTCDate()} ${M[d.time.getUTCMonth()]}`;
+        if (dateStr === lastDateStr2) return "";
+        lastDateStr2 = dateStr;
+        return dateStr;
+    });    
     }
 
     _syncNodePositions(x) {
@@ -970,9 +1009,9 @@ _buildSVG() {
         this.tip = d3.select("body").append("div")
             .attr("class", "ef-tooltip")
             .style("position", "fixed").style("pointer-events", "none").style("opacity", 0)
-            .style("background", "rgba(10,10,15,0.95)").style("padding", "10px 14px")
-            .style("border", "1px solid rgba(255,255,255,0.1)").style("border-radius", "6px")
-            .style("color", "#fff").style("font-size", "11px").style("z-index", "1000");
+            .style("background", "rgba(255,255,255,0.98)").style("padding", "10px 14px")
+.style("border", "1px solid rgba(0,0,0,0.12)").style("border-radius", "6px")
+.style("color", "#1a1a1a").style("font-size", "11px").style("z-index", "1000");
     }
 _makeDraggable(panelSel) {
     const node = panelSel.node();
@@ -1038,9 +1077,9 @@ _buildChainPanel() {
         .style("width", "320px").style("min-width", "220px").style("max-width", "600px")
         .style("height", "420px").style("min-height", "180px").style("max-height", "85vh")
         .style("resize", "both").style("overflow-y", "auto")
-        .style("background", "rgba(10,12,18,0.97)")
-        .style("border", "1px solid #EC4899").style("border-radius", "8px")
-        .style("padding", "14px 16px").style("color", "#fff").style("font-size", "11px")
+        .style("background", "rgba(255,255,255,0.98)")
+.style("border", "1px solid #EC4899").style("border-radius", "8px")
+.style("padding", "14px 16px").style("color", "#1a1a1a").style("font-size", "11px")
         .style("z-index", "9999").style("display", "none").style("pointer-events", "all");
     this._makeDraggable(this._chainPanel);
 }
@@ -1059,8 +1098,7 @@ _buildChainPanel() {
     _showChainPanel(txHash, destAddr, btc, arc, isPeelView = null) {
         if (isPeelView !== null) this._chainPanelShowSparkline = isPeelView;
         if (!this._chainPanel) this._buildChainPanel();
-        const isDay = (this.lastGranularity || 'day') === 'day';
-
+const isDay = (this.lastGranularity || 'day') !== 'hour';
         // Panel color follows which chain is on screen: amber for a Run Detection
         // candidate, pink for a plain arc click — never hardcoded, so it never
         // clashes with the arc color it's describing.
@@ -1089,14 +1127,14 @@ _buildChainPanel() {
         let body;
         if (isDay && arc) {
             const M = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-            const [yf, mf, df] = arc.fromKey.split("-").map(Number);
-            const [yt, mt, dt] = arc.toKey.split("-").map(Number);
-            const labelFrom = `${df} ${M[mf - 1]} ${yf}`;
-            const labelTo = `${dt} ${M[mt - 1]} ${yt}`;
+            const fmtDT = (dt) => `${dt.getUTCDate()} ${M[dt.getUTCMonth()]} ${dt.getUTCFullYear()}` +
+                (this.lastGranularity !== 'day' ? ` ${String(dt.getUTCHours()).padStart(2,'0')}:00` : '');
+            const labelFrom = fmtDT(arc.fromCenterTime);
+            const labelTo = fmtDT(arc.toCenterTime);
             body = `
             <div style="color:#888;font-size:9px;margin-bottom:6px">${labelFrom} → ${labelTo}</div>
-            <div style="margin-bottom:4px;font-size:10px;color:#aaa">
-                Combined volume: <b style="color:#fff">₿ ${btc.toFixed(4)}</b>
+            <div style="margin-bottom:4px;font-size:10px;color:#555">
+                Combined volume: <b style="color:#1a1a1a">₿ ${btc.toFixed(4)}</b>
             </div>
             <div style="margin-bottom:8px;font-size:9px;color:#777">
                 This one arc merges <b style="color:#3B82F6">${arc.count}</b> separate money movements
@@ -1110,7 +1148,7 @@ _buildChainPanel() {
             </div>` : ''}
             <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">First transaction hash in this chain</div>
             <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:10px">
-                <span style="font-family:monospace;font-size:8.5px;color:#ddd;word-break:break-all;flex:1">${txHash}</span>
+                <span style="font-family:monospace;font-size:8.5px;color:#333;word-break:break-all;flex:1">${txHash}</span>
                 ${copyBtn(txHash, hlColor)}
             </div>
             <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Main destination address</div>
@@ -1123,10 +1161,10 @@ _buildChainPanel() {
             const timeStr = tx ? d3.timeFormat("%d %b %Y, %H:%M:%S UTC")(tx.time) : '—';
             body = `
             <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Exact time</div>
-            <div style="margin-bottom:10px;font-size:10px;color:#ddd">${timeStr}</div>
+            <div style="margin-bottom:10px;font-size:10px;color:#333">${timeStr}</div>
             <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">TX hash</div>
             <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:10px">
-                <span style="font-family:monospace;font-size:8.5px;color:#ddd;word-break:break-all;flex:1">${txHash}</span>
+                <span style="font-family:monospace;font-size:8.5px;color:#333;word-break:break-all;flex:1">${txHash}</span>
                 ${copyBtn(txHash, hlColor)}
             </div>
             <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Largest output → address</div>
@@ -1134,29 +1172,49 @@ _buildChainPanel() {
                 <span style="font-family:monospace;font-size:8.5px;color:#F7931A;word-break:break-all;flex:1">${destAddr}</span>
                 ${copyBtn(destAddr, '#F7931A')}
             </div>
-            <div style="color:#aaa;font-size:10px;margin-bottom:8px">
-                Volume: <b style="color:#fff">₿ ${btc.toFixed(4)}</b>
+            <div style="color:#555;font-size:10px;margin-bottom:8px">
+                Volume: <b style="color:#1a1a1a">₿ ${btc.toFixed(4)}</b>
             </div>
             <div style="background:${hlColor}12;border:1px solid ${hlColor}40;
                  border-radius:4px;padding:6px 8px;font-size:10px">
                 <div style="color:${hlColor};font-weight:700;margin-bottom:4px">Chain summary</div>
-                <div style="color:#aaa">Plotted length: <b style="color:#fff">${total}</b>${this._chainTrueTotal && this._chainTrueTotal > total
+                <div style="color:#555">Plotted length: <b style="color:#1a1a1a">${total}</b>${this._chainTrueTotal && this._chainTrueTotal > total
                     ? ` <span style="color:#777">(of ${this._chainTrueTotal} total)</span>` : ''
                 }</div>
-                <div style="color:#aaa">This transaction is: <b style="color:#fff">number ${pos} of ${total}</b></div>
-${this._chainPanelShowSparkline ? this._buildSparkline(navArcs, usingFullHops ? this._sparklineIdx : this._activeChainIdx) : ''}
+                <div style="color:#555">This transaction is: <b style="color:#1a1a1a">number ${pos} of ${total}</b></div>
+${this._chainPanelShowSparkline ? `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:2px">
+        <button onclick="window._efChart._toggleSparklineView()"
+            style="background:transparent;border:1px solid ${hlColor};color:${hlColor};
+                   font-size:9px;padding:2px 8px;border-radius:3px;cursor:pointer">
+            Sparkline: ${this._sparklineDayView ? 'Day view' : 'Hour view'} (switch)
+        </button>
+    </div>` : ''}
+    ${this._chainPanelShowSparkline ? this._buildSparkline(navArcs, usingFullHops ? this._sparklineIdx : this._activeChainIdx) : ''}
                 ${this._chainPanelShowSparkline ? (() => {
                     const addrOf = hp => hp.addr || hp.inAddr;
-                    const drawnCount = navArcs.filter(hp => this.hourArcByKey.has(`${hp.hashFrom}|${hp.hashTo}|${addrOf(hp)}`)).length;
-                    const sameHourCount = navArcs.length - drawnCount;
-                    return sameHourCount > 0
-                        ? `<div style="color:#888;font-size:9px;margin-top:2px">
+                    let drawnCount, sameLabel;
+                    if (this._sparklineDayView) {
+                        drawnCount = navArcs.filter(hp => {
+                            const txFrom = this.txMap.get(hp.hashFrom);
+                            const txTo = this.txMap.get(hp.hashTo);
+                            return txFrom && txTo &&
+                                d3.utcFormat("%Y-%m-%d")(txFrom.time) !== d3.utcFormat("%Y-%m-%d")(txTo.time);
+                        }).length;
+                        sameLabel = 'in the same calendar day as the hop before it';
+                    } else {
+                        drawnCount = navArcs.filter(hp => this.hourArcByKey.has(`${hp.hashFrom}|${hp.hashTo}|${addrOf(hp)}`)).length;
+                        sameLabel = 'in the same clock hour as the hop before it';
+                    }
+                    const sameCount = navArcs.length - drawnCount;
+                    return sameCount > 0
+                        ? `<div style="color:#888;font-size:9px;margin-top:6px;padding-bottom:10px">
                              ${drawnCount} hop${drawnCount === 1 ? '' : 's'} drawn as arcs ·
-                             ${sameHourCount} hop${sameHourCount === 1 ? '' : 's'} in the same clock hour as the hop before it
+                             ${sameCount} hop${sameCount === 1 ? '' : 's'} ${sameLabel}
                              (no separate arc — shown as a hollow dot above, still counted)
                            </div>`
                         : '';
-                })() : ''}                <div style="color:#aaa;margin-top:4px;font-size:9px">
+                })() : ''}                <div style="color:#555;margin-top:4px;font-size:9px">
                     Each hop = the biggest output of one transaction gets spent again in the next one.
                     The smaller output at each step is the "peeled" amount.
                 </div>
@@ -1223,56 +1281,72 @@ ${this._chainPanelShowSparkline ? this._buildSparkline(navArcs, usingFullHops ? 
     const destAddr = maxOut ? maxOut.addr : (d.addresses[0]?.addr || "—");
     this._showChainPanel(d.hashFrom, destAddr, d.btc, d);
 }
-_buildSparkline(hops, currentIdx) {
+_toggleSparklineView() {
+    this._sparklineDayView = !this._sparklineDayView;
+    if (this._sparklineHops && this._sparklineHops.length) {
+        const hop = this._sparklineHops[this._sparklineIdx];
+        const tx = this.txMap.get(hop.hashFrom);
+        const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
+        const destAddr = maxOut ? maxOut.addr : hop.addr;
+        const matchingArc = this.hourArcByKey.get(`${hop.hashFrom}|${hop.hashTo}|${hop.addr}`);
+        this._showChainPanel(hop.hashFrom, destAddr, hop.btc, matchingArc || null, true);
+    }
+}
+_buildSparkline(hops, currentIdx, dayView = this._sparklineDayView) {
     if (!hops || hops.length < 2) return '';
-    const w = Math.max(286, hops.length * 12);
-    const h = 70, pad = 10, padTop = 14;
-    const vals = hops.map(hp => hp.btc);
-    const min = Math.min(...vals), max = Math.max(...vals);
+    const w = Math.max(286, hops.length * 14);
+    const h = 190, pad = 16;
+    const plotTop = 34, plotBottom = h - 34;
 
-    const safeMin = Math.max(min, 1e-6);
-    const safeMax = Math.max(max, safeMin * 1.000001);
-    const logMin = Math.log(safeMin), logMax = Math.log(safeMax);
+    const vals = hops.map(hp => hp.btc);
+    const dataMin = Math.max(Math.min(...vals), 1e-6);
+    const dataMax = Math.max(...vals);
+
+    const FIXED_TICKS = [10, 100, 1000];
+    const domainMin = Math.min(dataMin, FIXED_TICKS[0]);
+    const domainMax = Math.max(dataMax, FIXED_TICKS[FIXED_TICKS.length - 1]);
+    const logMin = Math.log(domainMin), logMax = Math.log(domainMax);
 
     const x = i => pad + (i / (vals.length - 1)) * (w - pad * 2);
-    const y = v => {
-        const lv = Math.log(Math.max(v, safeMin));
-        return h - pad - ((lv - logMin) / (logMax - logMin || 1)) * (h - pad * 2 - padTop);
-        return `<div style="overflow-x:auto;overflow-y:hidden;margin:8px 0">
-        <svg width="${w}" height="${h}" style="display:block">
-            <text x="${pad}" y="10" font-size="8" fill="#666">₿${fmtB(max)}</text>
-            <text x="${pad}" y="${h - 1}" font-size="8" fill="#666">₿${fmtB(min)}</text>
-            <polyline points="${pts}" fill="none" stroke="rgba(245,158,11,0.35)" stroke-width="1"/>${dots}
-        </svg>
-    </div>`;
-    };
+    const y = v => plotBottom - ((Math.log(Math.max(v, domainMin)) - logMin) / (logMax - logMin)) * (plotBottom - plotTop);
 
     const pts = vals.map((v, i) => `${x(i)},${y(v)}`).join(' ');
 
     const dots = hops.map((hop, i) => {
         const isCurrent = i === currentIdx;
         const addr = hop.addr || hop.inAddr;
-        const hasArc = this.hourArcByKey.has(`${hop.hashFrom}|${hop.hashTo}|${addr}`);
-        if (isCurrent) {
-            return `<circle cx="${x(i)}" cy="${y(hop.btc)}" r="4.5" fill="#ffffff" stroke="#F59E0B" stroke-width="1.5" />`;
+        let hasArc;
+        if (dayView) {
+            const txFrom = this.txMap.get(hop.hashFrom);
+            const txTo = this.txMap.get(hop.hashTo);
+            hasArc = !txFrom || !txTo ||
+                d3.utcFormat("%Y-%m-%d")(txFrom.time) !== d3.utcFormat("%Y-%m-%d")(txTo.time);
+        } else {
+            hasArc = this.hourArcByKey.has(`${hop.hashFrom}|${hop.hashTo}|${addr}`);
         }
-        // Filled = this hop has its own drawn arc on the graph.
-        // Hollow = same clock hour as its prior hop — no separate arc
-        // exists, but the hop is real and still plotted here.
+        if (isCurrent) {
+            return `<circle cx="${x(i)}" cy="${y(hop.btc)}" r="6.5" fill="#ffffff" stroke="#F59E0B" stroke-width="2.2" />`;
+        }
         return hasArc
-            ? `<circle cx="${x(i)}" cy="${y(hop.btc)}" r="2.5" fill="#F59E0B" />`
-            : `<circle cx="${x(i)}" cy="${y(hop.btc)}" r="2.5" fill="none" stroke="#F59E0B" stroke-width="1.2" />`;
+            ? `<circle cx="${x(i)}" cy="${y(hop.btc)}" r="4" fill="#F59E0B" />`
+            : `<circle cx="${x(i)}" cy="${y(hop.btc)}" r="4" fill="none" stroke="#F59E0B" stroke-width="1.8" />`;
     }).join('');
 
     const fmtB = v => v >= 1 ? v.toFixed(v >= 100 ? 0 : 2) : v.toFixed(4);
 
-    return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}"
-                 preserveAspectRatio="xMidYMid meet"
-                 style="display:block;margin:8px 0;max-width:100%">
-        <text x="${pad}" y="10" font-size="8" fill="#666">₿${fmtB(max)}</text>
-        <text x="${pad}" y="${h - 1}" font-size="8" fill="#666">₿${fmtB(min)}</text>
-        <polyline points="${pts}" fill="none" stroke="rgba(245,158,11,0.35)" stroke-width="1"/>${dots}
-    </svg>`;
+    const midMarks = FIXED_TICKS.map(v => {
+        const yy = y(v);
+        return `<line x1="${pad}" y1="${yy}" x2="${w - pad}" y2="${yy}" stroke="rgba(0,0,0,0.25)" stroke-width="0.75" stroke-dasharray="2,2"/>
+                <text x="${w - pad}" y="${yy - 2}" font-size="7" font-weight="700" fill="#333" text-anchor="end">₿${v}</text>`;
+    }).join('');
+
+    return `<div style="overflow-x:auto;overflow-y:hidden;margin:8px 0 4px;border:1px solid rgba(0,0,0,0.1);border-radius:4px">
+        <svg width="${w}" height="${h}" style="display:block">
+            <text x="${w - pad}" y="16" font-size="11" font-weight="700" fill="#333" text-anchor="end">₿${fmtB(dataMax)}</text>
+            <text x="${w - pad}" y="${h - 8}" font-size="11" font-weight="700" fill="#333" text-anchor="end">₿${fmtB(dataMin)}</text>
+            <polyline points="${pts}" fill="none" stroke="rgba(245,158,11,0.35)" stroke-width="1"/>${midMarks}${dots}
+        </svg>
+    </div>`;
 }
 
     _drawLegend(arcs, granularity) {
@@ -1291,7 +1365,7 @@ _buildSparkline(hops, currentIdx) {
 
         if (!arcs.length) { scaleRow.html(''); return; }
 
-        const scale = granularity === "day" ? this.dayColorScale : this.hourColorScale;
+const scale = granularity === "hour" ? this.hourColorScale : this.dayColorScale;
         const edges = scale.bucketEdges;
         const colors = scale.range();
         const fmtB = v => {
@@ -1305,7 +1379,7 @@ _buildSparkline(hops, currentIdx) {
             const lo = edges[i], hi = edges[i + 1];
             const rangeLabel = i === colors.length - 1 ? `>${fmtB(lo)}₿` : `${fmtB(lo)}–${fmtB(hi)}₿`;
             const title = `${fmtB(lo)} to ${i === colors.length - 1 ? '∞' : fmtB(hi)} BTC`;
-            return `<span title="${title}" style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:#aaa;white-space:nowrap">
+            return `<span title="${title}" style="display:inline-flex;align-items:center;gap:4px;font-size:9px;color:#555;white-space:nowrap">
             <span style="width:9px;height:9px;border-radius:2px;background:${c};display:inline-block;flex-shrink:0"></span>${rangeLabel}
         </span>`;
         }).join('');
@@ -1352,8 +1426,9 @@ _buildSparkline(hops, currentIdx) {
 
         const filterFn = a => this._arcPassesFilters(a, this.activeFilters);
 
-        this.filteredLevels.day = this.levels.day.filter(filterFn);
-        this.filteredLevels.hour = this.levels.hour.filter(filterFn);
+       Object.keys(this.levels).forEach(k => {
+    this.filteredLevels[k] = this.levels[k].filter(filterFn);
+});
         this.selectedArc = null;
         this.gChain.selectAll("*").remove();
         this.update(d3.zoomTransform(this.svgEl.node()).k, true);
@@ -1389,7 +1464,7 @@ _buildSparkline(hops, currentIdx) {
 
     // Only absorbs float/fee noise now — a REAL increase always breaks the run.
 
-    _detectPeelingChainCandidates(minLength = 3, minRetainPct = 0.9) {
+   _detectPeelingChainCandidates(minLength = 3, minRetainPct = 0.9, requireDecreasing = true) {
         const thr = this.btcThreshold || 0;
         const roots = new Set();
         this.filteredLevels.hour
@@ -1430,8 +1505,8 @@ _buildSparkline(hops, currentIdx) {
             let runStart = 0;
             for (let i = 1; i <= seq.length; i++) {
                 const broke = i === seq.length ||
-                    !seq[i].isCleanPeel ||
-                    seq[i].btc > seq[i - 1].btc; // must keep shrinking
+    !seq[i].isCleanPeel ||
+    (requireDecreasing && seq[i].btc > seq[i - 1].btc);
 
                 if (broke) {
                     let start = runStart;
@@ -1463,9 +1538,9 @@ _buildPeelPanel() {
         .style("width", "300px").style("min-width", "200px").style("max-width", "550px")
         .style("height", "400px").style("min-height", "150px").style("max-height", "85vh")
         .style("resize", "both").style("overflow-y", "auto")
-        .style("background", "rgba(10,12,18,0.97)")
-        .style("border", "1px solid #F59E0B").style("border-radius", "8px")
-        .style("padding", "14px 16px").style("color", "#fff").style("font-size", "11px")
+       .style("background", "rgba(255,255,255,0.98)")
+.style("border", "1px solid #F59E0B").style("border-radius", "8px")
+.style("padding", "14px 16px").style("color", "#1a1a1a").style("font-size", "11px")
         .style("z-index", "9999").style("display", "none").style("pointer-events", "all");
     this._makeDraggable(this._peelPanel);
 }
@@ -1495,7 +1570,7 @@ _buildPeelPanel() {
             <div class="ef-peel-row" data-idx="${i}" style="
                 padding:8px 10px;margin-bottom:6px;border:1px solid rgba(245,158,11,0.3);
                 border-radius:5px;cursor:pointer;background:rgba(245,158,11,0.05)">
-                <div style="display:flex;justify-content:space-between;font-size:10px;color:#ddd">
+                <div style="display:flex;justify-content:space-between;font-size:10px;color:#333">
                     <span><b style="color:#F59E0B">${c.length}</b> hops</span>
                     <span>${c.startBtc.toFixed(3)} ₿ → ${c.endBtc.toFixed(3)} ₿</span>
                 </div>

@@ -5,12 +5,10 @@ class FilterManager {
         this.container = container || d3.select("#dynamic-controls");
         
         this.renderingLimit = 5000;
-        this.unbalancedThreshold = 1; 
         this.minSingleOutput = 0;        // Minimum threshold on the TX's maximum output
         this.maxSingleOutput = Infinity; // Maximum threshold on the TX's maximum output
         this.minMinOutput    = 0;        // Minimum threshold on the TX's minimum output
         this.maxMinOutput    = Infinity; // Maximum threshold on the TX's minimum output
-        this.topRatioThreshold = 1; 
         this.onlySpentInPeriod = false; 
 
         this.aggregatedTransactions = this.precomputeStats(data);
@@ -63,20 +61,23 @@ class FilterManager {
 
         return txList;
     }
-
-    init() {
+init() {
         this.container.selectAll("*").remove();
         const wrapper = this.container.append("div").attr("class", "filter-wrapper");
 
-        // ── Max/Min ratio ─────────────────────────────────────────
-        const ubSection = wrapper.append("div").attr("class", "filter-section");
-        ubSection.append("label").text("Max / Min ratio");
-        this.ubInput = ubSection.append("input").attr("type", "number").attr("min", 1).attr("step", 0.1).attr("value", 1);
-
-        // ── 1°/2° output ratio ────────────────────────────────────
-        const trSection = wrapper.append("div").attr("class", "filter-section");
-        trSection.append("label").text("1° / 2° Output Ratio");
-        this.trInput = trSection.append("input").attr("type", "number").attr("min", 1).attr("step", 0.1).attr("value", 1);
+        // ── Date range (Start date / End date) ────────────────────
+        // Only matters when Export/Apply sends filters to the backend —
+        // the live Dot Chart preview still shows just the single day
+        // picked in the Day dropdown, since that's all that's loaded here.
+        const dateSection = wrapper.append("div").attr("class", "filter-section");
+        dateSection.append("label").text("Date range (start – end)");
+        const dateRow = dateSection.append("div").style("display", "flex").style("gap", "6px");
+        this.startDateInput = dateRow.append("input")
+            .attr("type", "date").attr("value", "2024-05-24")
+            .attr("class", "fp-date-input");
+        this.endDateInput = dateRow.append("input")
+            .attr("type", "date").attr("value", "2024-06-05")
+            .attr("class", "fp-date-input");
 
        // ── Largest Output range (min – max) ────────────────────────
         const largestSection = wrapper.append("div").attr("class", "filter-section");
@@ -118,12 +119,12 @@ class FilterManager {
 
         // ── Listeners ─────────────────────────────────────────────
        const inputs = [
-            this.ubInput, this.trInput,
             this.minValInput, this.maxValInput,
             this.minMinInput, this.maxMinInput,
             this.minIn, this.maxIn,
             this.minOut, this.maxOut,
-            this.spentCheck
+            this.spentCheck,
+            this.startDateInput, this.endDateInput
         ];
         inputs.forEach(el => el.on("input", () => this.updatePreview()));
         this.updatePreview();
@@ -136,9 +137,10 @@ class FilterManager {
         }
     }
 
-    updatePreview() {
-        this.unbalancedThreshold    = +this.ubInput.property("value")    || 1;
-        this.topRatioThreshold      = +this.trInput.property("value")    || 1;
+   updatePreview() {
+        this.startDate = this.startDateInput.property("value") || null;
+        this.endDate   = this.endDateInput.property("value") || null;
+
        this.minSingleOutput = +this.minValInput.property("value") || 0;
         this.maxSingleOutput = +this.maxValInput.property("value") || Infinity;
         this.minMinOutput    = +this.minMinInput.property("value") || 0;
@@ -163,8 +165,6 @@ class FilterManager {
 
     applyFilters() {
         return this.aggregatedTransactions.filter(tx => {
-            const matchUnbalanced = tx.ratio        >= this.unbalancedThreshold;
-            const matchTopRatio   = tx.topRatio     >= this.topRatioThreshold;
            const matchMinVal = tx.maxSingleVal >= this.minSingleOutput;
             const matchMaxVal = tx.maxSingleVal <= this.maxSingleOutput;
             const matchMinMin = tx.minSingleVal >= this.minMinOutput;
@@ -173,17 +173,17 @@ class FilterManager {
             const matchOutputs    = tx.outputs >= this.filterState.minOutputs && tx.outputs <= this.filterState.maxOutputs;
             const matchSpent      = !this.onlySpentInPeriod || tx.wasSpent;
 
-           return matchUnbalanced && matchTopRatio && matchMinVal && matchMaxVal
+           return  matchMinVal && matchMaxVal
                 && matchMinMin && matchMaxMin
                 && matchInputs && matchOutputs && matchSpent;
         });
     }
 
-    getFilterParams() {
+   getFilterParams() {
         return {
-            unbalancedThreshold: this.unbalancedThreshold,
-            topRatioThreshold:   this.topRatioThreshold,
-          minSingleOutput:     this.minSingleOutput,
+            startDate:           this.startDate || null,
+            endDate:             this.endDate || null,
+            minSingleOutput:     this.minSingleOutput,
             maxSingleOutput:     this.maxSingleOutput,
             minMinOutput:        this.minMinOutput,
             maxMinOutput:        this.maxMinOutput,   // NEW
