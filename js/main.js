@@ -32,14 +32,19 @@ function parseRow(d) {
 function setViewChrome(view) {
     const isCluster = view === 'cluster';
 
+    // Day dropdown removed from UI — Bubble Chart view is gone, so there's
+    // no reason to expose day-switching to the user anymore. The dropdown
+    // element still exists (hidden) and still auto-loads the default day
+    // in the background, since FilterManager needs that data to compute
+    // the live TX-count preview and input/output ranges.
     const daySection = document.getElementById('sb-day-section');
-    if (daySection) daySection.style.display = isCluster ? '' : 'none';
+    if (daySection) daySection.style.display = 'none';
 
     const footer = document.querySelector('.sb-footer');
     if (footer) footer.style.display = isCluster ? '' : 'none';
 
     document.querySelectorAll('.viz-chip').forEach(el => {
-        el.style.display = isCluster ? '' : 'none';
+        el.style.display = 'none';
     });
 }
 
@@ -86,30 +91,34 @@ async function loadDataAndDraw(fileName) {
     if (cleanData.length === 0) throw new Error("Not found or empty data");
        
 
-        if (currentType === 'scatter') {
+               if (currentType === 'scatter') {
             filterContainer.selectAll("*").remove();
 
+            // Bubble Chart view removed. FilterManager still runs — it computes
+            // the live TX-count preview as the user adjusts filters — it just no
+            // longer feeds a chart on this screen. Old chart/drill-down wiring
+            // kept below, commented, in case a live preview chart comes back.
             filterManager = new FilterManager(cleanData, (filteredData) => {
                 updateTxCount(filteredData.length);
 
-                if (chartInstance && chartInstance.isDrilledDown && chartInstance.currentCluster) {
-                    const filteredChildren = chartInstance.currentCluster.children.filter(child =>
-                        filteredData.some(fd => fd.transaction_hash === child.transaction_hash)
-                    );
-
-                    chartInstance.rawData = filteredData;
-                    chartInstance.displayData = filteredChildren.length > 0
-                        ? filteredChildren
-                        : chartInstance.currentCluster.children;
-                    chartInstance.setupScales();
-                    chartInstance.updateZoomTranslateExtent();
-                    chartInstance.updateElements(chartInstance.xScale, chartInstance.yScale);
-                } else {
-                    chartInstance = new ChartDotPlot("#chart-area", filteredData);
-                }
+                // if (chartInstance && chartInstance.isDrilledDown && chartInstance.currentCluster) {
+                //     const filteredChildren = chartInstance.currentCluster.children.filter(child =>
+                //         filteredData.some(fd => fd.transaction_hash === child.transaction_hash)
+                //     );
+                //     chartInstance.rawData = filteredData;
+                //     chartInstance.displayData = filteredChildren.length > 0
+                //         ? filteredChildren
+                //         : chartInstance.currentCluster.children;
+                //     chartInstance.setupScales();
+                //     chartInstance.updateZoomTranslateExtent();
+                //     chartInstance.updateElements(chartInstance.xScale, chartInstance.yScale);
+                // } else {
+                //     chartInstance = new ChartDotPlot("#chart-area", filteredData);
+                // }
             }, filterContainer);
 
             filterManager.triggerUpdate();
+            showLandingPlaceholder();
         }
 
     } catch (err) {
@@ -200,12 +209,71 @@ function updateTxCount(n) {
     const header = document.getElementById('header-tx-count');
     if (header && n != null) header.textContent = n.toLocaleString('en-US') + ' TX loaded';
 }
+/*function showLandingPlaceholder() {
+    d3.select("#chart-area").html(`
+        <div class="landing-placeholder">
+            <div class="landing-title">₿ BitVas</div>
+            <p class="landing-sub">Set your filters on the left, then pick a view above to explore the data.</p>
+        </div>
+    `);
+}*/
+function showLandingPlaceholder() {
+    d3.select("#chart-area").html(`
+        <div class="landing-placeholder">
+            <div class="landing-title">₿ BitVas</div>
+            <svg class="landing-chain" viewBox="0 0 480 190" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <marker id="lc-arrow" viewBox="0 0 6 6" refX="5" refY="3"
+                            markerWidth="6" markerHeight="6" orient="auto">
+                        <path d="M0,0 L6,3 L0,6 z" fill="rgba(255,255,255,0.75)"/>
+                    </marker>
+                </defs>
+
+                <!-- main chain links -->
+                <g stroke="rgba(255,255,255,0.75)" stroke-width="2" marker-end="url(#lc-arrow)" fill="none">
+                    <path d="M55,95 L120,70"/>
+                    <path d="M120,70 L195,115"/>
+                    <path d="M195,115 L265,85"/>
+                    <path d="M265,85 L335,120"/>
+                    <path d="M335,120 L405,95"/>
+                </g>
+                <!-- peel-off links -->
+                <g stroke="rgba(255,255,255,0.45)" stroke-width="1.6" stroke-dasharray="3,3" marker-end="url(#lc-arrow)" fill="none">
+                    <path d="M55,95 L45,150"/>
+                    <path d="M120,70 L155,25"/>
+                    <path d="M195,115 L200,165"/>
+                    <path d="M265,85 L275,35"/>
+                    <path d="M335,120 L360,160"/>
+                </g>
+
+                <!-- main chain nodes (shrinking BTC amounts) -->
+                <g class="lc-node lc-main" font-family="Segoe UI, sans-serif" font-weight="700" text-anchor="middle">
+                    <circle cx="55"  cy="95"  r="22"/><text x="55"  y="100">50</text>
+                    <circle cx="120" cy="70"  r="19"/><text x="120" y="75">42</text>
+                    <circle cx="195" cy="115" r="16"/><text x="195" y="120">30</text>
+                    <circle cx="265" cy="85"  r="14"/><text x="265" y="90">18</text>
+                    <circle cx="335" cy="120" r="12"/><text x="335" y="124">7</text>
+                    <circle cx="405" cy="95"  r="10"/><text x="405" y="99">…</text>
+                </g>
+                <!-- peeled-off nodes -->
+                <g class="lc-node lc-peel" font-family="Segoe UI, sans-serif" font-weight="700" text-anchor="middle" font-size="10">
+                    <circle cx="45"  cy="150" r="13"/><text x="45"  y="153">8</text>
+                    <circle cx="155" cy="25"  r="12"/><text x="155" y="28">12</text>
+                    <circle cx="200" cy="165" r="11"/><text x="200" y="168">5</text>
+                    <circle cx="275" cy="35"  r="10"/><text x="275" y="38">3</text>
+                    <circle cx="360" cy="160" r="10"/><text x="360" y="163">2</text>
+                </g>
+            </svg>
+        </div>
+    `);
+}
 
 // ─── Switch chart ─────────────────────────────────────────
 
 function switchChart(type) {
     currentType = type;
     chartInstance = null;
+    cleanupExplorativeUI();
 
     const btn            = d3.select("#toggle-btn");
     const btnExplorative = d3.select("#toggle-btn-explorative");
@@ -218,9 +286,9 @@ function switchChart(type) {
     const applyBtn = document.getElementById('apply-filters-btn');
     if (applyBtn) applyBtn.style.display = 'none';
 
-    if (type === 'scatter') {
+       if (type === 'scatter') {
         setViewChrome('cluster');
-        btn.text("Bubble Chart").on("click", () => switchChart('scatter'));
+        btn.text("Filters").on("click", () => switchChart('scatter'));
         btnExplorative.text("Linear Flow Chart").on("click", () => switchChart('explorative'));
 
         const select = controls.append("select")
@@ -244,13 +312,21 @@ function switchChart(type) {
 
     } else if (type === 'explorative') {
         setViewChrome('flow');
-        btn.text("Bubble Chart").on("click", () => switchChart('scatter'));
+        btn.text("Filters").on("click", () => switchChart('scatter'));
         btnExplorative.text("Linear Flow Chart").on("click", () => switchChart('explorative'));
 
         updateHeaderBadge(null);
         updateTxCount(null);
         initExplorativeFlow();
     }
+}
+function cleanupExplorativeUI() {
+    d3.select("#ef-legend-footer").remove();
+    d3.select(".ef-chain-panel").remove();
+    d3.select(".ef-peel-panel").remove();
+    d3.selectAll(".ef-tooltip").remove();
+    d3.select(".ef-zoom-notice").remove();
+    window._efChart = null;
 }
 // ─── Event listeners ──────────────────────────────────────
 const exportBtn = document.getElementById('export-csv-btn');

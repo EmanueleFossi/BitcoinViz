@@ -1,4 +1,4 @@
-function createClusters(data, targetPointsPerCluster = 500) {
+/*  function createClusters(data, targetPointsPerCluster = 500) {
     // 1. Definiamo le fasce di valore
     const tiers = [
         { id: "high", min: 500, max: Infinity, label: "> 500 BTC", yCenter: 750 },
@@ -47,4 +47,4 @@ function createClusters(data, targetPointsPerCluster = 500) {
     });
 
     return clusters;
-}
+}*/

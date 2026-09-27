@@ -136,8 +136,7 @@ function buildExplorativeSidebar(chart) {
     const container = d3.select("#filter-controls-container");
     container.selectAll("*").remove();
 
-    const fpState = { hl: [], ex: [] };
-
+    const fpState = { hl: [] };
     // Address → color map, stable for the whole session
     const hlColorMap = new Map();
     let hlColorIdx = 0;
@@ -201,20 +200,16 @@ function fpApply() {
     const minGapInput    = document.getElementById('fp-mingap-input');
     const gapEnabled     = document.getElementById('fp-gap-enabled');
     const gapInput       = document.getElementById('fp-gap-input');
-    const hopsEnabled    = document.getElementById('fp-hops-enabled');
-    const hopsInput      = document.getElementById('fp-hops-input');
 
     d3.select("#ef-no-data-banner").remove();
 
     chart.applyFilters({
         queries:    fpState.hl,
-        excludes:   fpState.ex,
         hlColorMap: hlColorMap,
         minB:       0,
         maxB:       Infinity,
         minGapH:    (minGapEnabled.checked && minGapInput.value) ? +minGapInput.value : 0,
-        maxGapH:    (gapEnabled.checked && gapInput.value)       ? +gapInput.value    : Infinity,
-        minHops:    (hopsEnabled.checked && hopsInput.value)     ? +hopsInput.value   : 0
+        maxGapH:    (gapEnabled.checked && gapInput.value)       ? +gapInput.value    : Infinity
     });
 }
     container.html(`
@@ -282,16 +277,7 @@ function fpApply() {
             </div>
         </div>
 
-        <div class="fp-section">
-            <div class="fp-lbl">Exclude addresses</div>
-            <div class="fp-input-wrap">
-                <input type="text" id="fp-ex-input" placeholder="Address or prefix…" />
-                <button class="fp-add" id="fp-ex-btn">+</button>
-            </div>
-            <div class="fp-tags" id="fp-ex-list">
-                <span class="fp-empty" id="fp-ex-empty">none</span>
-            </div>
-        </div>
+       
 
         <div class="fp-section">
             <div class="fp-lbl">Min gap between hops (hours)</div>
@@ -299,7 +285,6 @@ function fpApply() {
                 <input type="checkbox" id="fp-mingap-enabled" />
                 <input type="number" id="fp-mingap-input" placeholder="e.g. 1" min="0" />
             </div>
-            <div class="fp-hint">Hide flows that move again too quickly (below this many hours).</div>
         </div>
 
         <div class="fp-section">
@@ -308,17 +293,8 @@ function fpApply() {
                 <input type="checkbox" id="fp-gap-enabled" />
                 <input type="number" id="fp-gap-input" placeholder="e.g. 6" min="1" />
             </div>
-            <div class="fp-hint">Hide flows that took too long to move again (above this many hours).</div>
         </div>
 
-        <div class="fp-section">
-            <div class="fp-lbl">Min chain depth</div>
-            <div class="fp-check-row">
-                <input type="checkbox" id="fp-hops-enabled" />
-                <input type="number" id="fp-hops-input" placeholder="e.g. 2" min="1" />
-            </div>
-            <div class="fp-hint">Only show flows that belong to a peeling chain with at least this many transactions total (not the same as address reuse).</div>
-        </div>
 
         <div class="fp-section">
             <div class="fp-lbl">Granularity</div>
@@ -328,7 +304,6 @@ function fpApply() {
                     One address-link per edge
                 </label>
             </div>
-            <div class="fp-hint">Each edge is one address's link between two transactions (not the whole transaction) — helpful for detecting peeling chains</div>
         </div>
 
  <div class="fp-section" id="fp-peel-section">
@@ -347,16 +322,11 @@ function fpApply() {
     <input type="checkbox" id="fp-peel-decreasing" checked />
     <label for="fp-peel-decreasing" style="font-size:10px;cursor:pointer">Require shrinking amount per hop</label>
 </div>
-            <div class="fp-hint">
-                A hop only counts as a "clean peel" if the largest output keeps at least this %
-                of the transaction's total input value, and each hop's amount is smaller than the last.
-            </div>
+            
             <button id="fp-detect-peel-btn" class="fp-add" style="width:100%;padding:7px;margin-top:6px">
                 Run Detection
             </button>
-            <div class="fp-hint" id="fp-peel-hint">
-                Enable "One transaction per edge" above first — detection needs per-transaction data.
-            </div>
+          <div id="fp-peel-hint" class="fp-hint">Enable "One address-link per edge" to run detection</div> 
         </div>
     `);
 
@@ -379,10 +349,8 @@ function fpApply() {
             chart.update(d3.zoomTransform(chart.svgEl.node()).k, false);
         });
 
-    document.getElementById('fp-hl-btn').addEventListener('click', () => fpAddTag('hl'));
-    document.getElementById('fp-ex-btn').addEventListener('click', () => fpAddTag('ex'));
+        document.getElementById('fp-hl-btn').addEventListener('click', () => fpAddTag('hl'));
     document.getElementById('fp-hl-input').addEventListener('keydown', e => { if (e.key === 'Enter') fpAddTag('hl'); });
-    document.getElementById('fp-ex-input').addEventListener('keydown', e => { if (e.key === 'Enter') fpAddTag('ex'); });
 const peelBtn  = document.getElementById('fp-detect-peel-btn');
     const peelHint = document.getElementById('fp-peel-hint');
 
@@ -403,6 +371,7 @@ function syncPeelAvailability() {
         chart.update(k, true);
         syncPeelAvailability();
     });
+   
   peelBtn.addEventListener('click', () => {
         if (!chart.forceHourly) return;
         const retainPct = Math.min(1, Math.max(0.5, (+document.getElementById('fp-peel-retain-input').value || 90) / 100));
@@ -412,8 +381,7 @@ const results = chart._detectPeelingChainCandidates(minLen, retainPct, requireDe
         chart._showPeelResults(results);
     });
     // Auto-apply on every threshold control — no separate "Apply" button.
-   ['fp-mingap-enabled','fp-mingap-input','fp-gap-enabled','fp-gap-input',
-     'fp-hops-enabled','fp-hops-input']
+     ['fp-mingap-enabled','fp-mingap-input','fp-gap-enabled','fp-gap-input']
         .forEach(id => {
             const el = document.getElementById(id);
             const evt = el.tagName === 'SELECT' || el.type === 'checkbox' ? 'change' : 'input';
@@ -421,5 +389,4 @@ const results = chart._detectPeelingChainCandidates(minLen, retainPct, requireDe
         });
 
     fpRenderTags('hl');
-    fpRenderTags('ex');
 }

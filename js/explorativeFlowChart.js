@@ -18,9 +18,10 @@ class ExplorativeFlowChart {
         this.svgH = containerH;
 
         this.THRESHOLD_HOUR = 3.0;
-        this.btcThreshold = 0;
+                this.btcThreshold = 0;
         this.NODE_R = 5;
         this.forceHourly = false;
+        
         // Controls whether the chain panel draws the sparkline plot.
         // Only true when the panel was opened from a detected peeling-chain
         // candidate (Run Detection), never from a plain arc click.
@@ -36,10 +37,12 @@ class ExplorativeFlowChart {
             maxAddrTx: Infinity, minAddrTx: 0
         };
 
-        this._processTimeWindow();
+              this._processTimeWindow();
         this._resolveChainLinks();
         this._computeHopCounts();
         this._precomputeAllLevels();
+        this._computeGlobalStats();
+        this._tagOutlierArcs();
         this._buildSVG();
         this._buildScales();
         this._buildZoom();
@@ -222,6 +225,23 @@ class ExplorativeFlowChart {
         this.txInputMap = txMap; // NEW — has tx_inputs, btc_in, outputs per hash
 
     }
+        _computeGlobalStats() {
+        // Hour-level arcs = one entry per real individual transaction (no
+        // merging), so this is the true per-transaction amount distribution
+        // across the whole loaded dataset.
+        const amounts = this.levels.hour.map(a => a.btc).sort((a, b) => a - b);
+        this.globalOutlierThreshold = amounts.length >= 20
+            ? d3.quantile(amounts, 0.99)
+            : null; // not enough data for a meaningful percentile yet
+    }
+        _tagOutlierArcs() {
+        Object.values(this.levels).forEach(arcs => {
+            arcs.forEach(arc => {
+                const f = this._computeArcOutlierFlags(arc);
+                       arc._hasOutlier = !!(f.dominant || f.selfLoops.length || f.globalOutliers.length || f.repeatedAddrFlows.length); 
+                      });
+        });
+    }
 
     _precomputeAllLevels() {
         this.levels = {
@@ -306,16 +326,14 @@ const BUCKET_HOURS = { day: 24, "6h": 6, "3h": 3, "1h": 1 };
                         btc: volumeBtc, count: 1, hops, chainLen,
                         chainRoot: root, hashFrom: origin.hash, hashTo: tx.hash,
                         inAddr: inAddr, uncertain: origin.uncertain,
-                        addresses: [{ addr: inAddr, btc: volumeBtc, hops }]
-                    });
+addresses: [{ addr: inAddr, btc: volumeBtc, hops, chainLen, hashFrom: origin.hash, hashTo: tx.hash, timeFrom: origin.time, timeTo: tx.time }]                   });
                 } else {
                     const e = arcMap.get(arcKey);
                     e.btc += volumeBtc; e.count += 1;
                     e.hops = Math.max(e.hops, hops);
                     e.chainLen = Math.max(e.chainLen, chainLen);
                     e.uncertain = e.uncertain || origin.uncertain;
-                    e.addresses.push({ addr: inAddr, btc: volumeBtc, hops });
-                }
+e.addresses.push({ addr: inAddr, btc: volumeBtc, hops, chainLen, hashFrom: origin.hash, hashTo: tx.hash, timeFrom: origin.time, timeTo: tx.time });              }
             });
         });
 
@@ -344,7 +362,39 @@ const BUCKET_HOURS = { day: 24, "6h": 6, "3h": 3, "1h": 1 };
         }
         return null;
     }
+    _computeArcOutlierFlags(arc) {
+        const flows = arc.addresses;
+        const total = arc.btc;
 
+        // 1. Dominant transaction — one flow eating most of the arc's volume
+        let dominant = null;
+        if (flows.length > 1) {
+            flows.forEach(f => {
+                const pct = total > 0 ? f.btc / total : 0;
+                if (pct >= 0.7 && (!dominant || pct > dominant.pct)) dominant = { flow: f, pct };
+            });
+        }
+
+        // 2. Self-loop — money went right back to the same address it came from
+        const selfLoops = flows.filter(f => {
+            const tx = this.txMap ? this.txMap.get(f.hashTo) : null;
+            const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
+            const destAddr = maxOut ? maxOut.addr : null;
+            return destAddr && f.addr && destAddr.toLowerCase() === f.addr.toLowerCase();
+        });
+
+                     // 3. Global statistical outlier — top 1% of amounts dataset-wide
+        const globalOutliers = this.globalOutlierThreshold != null
+            ? flows.filter(f => f.btc >= this.globalOutlierThreshold)
+            : [];
+
+        // 4. Repeated address — same input address used more than once in this arc
+        const addrCounts = new Map();
+        flows.forEach(f => addrCounts.set(f.addr, (addrCounts.get(f.addr) || 0) + 1));
+        const repeatedAddrFlows = flows.filter(f => addrCounts.get(f.addr) > 1);
+
+        return { dominant, selfLoops, globalOutliers, repeatedAddrFlows };
+    }
     // Matched sub-total for the currently highlighted/searched addresses only
     // (fixes the "43 flows" confusion — this is the real per-address share).
     _getMatchedStats(arc) {
@@ -644,8 +694,7 @@ _arcPath(x1, x2, h, axisY, side = 1) {
                 .attr("marker-end", baseOp > 0 ? "url(#ef-arrow)" : null);
         });
 
-        if (!arc) return;
-
+               if (!arc) return;
         let root = arc.chainRoot || this.hashToRoot.get(arc.hashFrom) || arc.hashFrom;
         const trueRoot = this.chainRootMap.get(root);
         if (trueRoot && trueRoot !== root) root = trueRoot;
@@ -754,6 +803,31 @@ return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1
             })
             .transition().duration(300).attr("opacity", 1);
     }
+    _highlightSingleArc(arc, color = "#3B82F6") {
+    this.gChain.selectAll("*").remove();
+    this.gHitTop.style("pointer-events", "none");
+    this.gHitBot.style("pointer-events", "none");
+    this.gArcTop.selectAll("path[data-key]").attr("opacity", 0.05).attr("marker-end", null);
+    this.gArcBot.selectAll("path[data-key]").attr("opacity", 0.05).attr("marker-end", null);
+
+    this._activeChainArcs = [arc];
+    this._ensureChainNodes([arc]);
+    this._centerOnArc(arc);
+
+    const x = this.currentX, axisY = this._axisY, self = this;
+    this.gChain.selectAll("path.chain-arc")
+        .data([arc], d => d.key)
+        .enter().append("path")
+        .attr("class", "chain-arc").attr("fill", "none")
+        .attr("stroke", color).attr("stroke-linecap", "round")
+        .attr("marker-end", "url(#ef-arrow-hl)").attr("stroke-width", 3.5)
+        .attr("opacity", 0)
+        .attr("d", d => {
+            const x1 = x(d.time_from), x2 = x(d.time_to);
+            return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1);
+        })
+        .transition().duration(300).attr("opacity", 1);
+}
 
     _renderArcLayer(className, arcs, opacity, x) {
         const self = this, axisY = this._axisY;
@@ -783,7 +857,23 @@ return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1
 
                 .attr("marker-end", opacity > 0 ? "url(#ef-arrow)" : null)
                 .attr("opacity", self.selectedArc ? 0.05 : opacity);
-
+                     const flaggedArcs = className === "day-arcs" ? subArcs.filter(a => a._hasOutlier) : [];
+            const dotSel = gVis.selectAll(`circle.outlier-dot`).data(flaggedArcs, d => d.key);
+            dotSel.exit().remove();
+            dotSel.enter().append("circle")
+                .attr("class", "outlier-dot")
+                .attr("r", 3.5)
+                .attr("fill", "#EF4444")
+                .attr("stroke", "white")
+                .attr("stroke-width", 0.8)
+                .attr("pointer-events", "none")
+              .merge(dotSel)
+                .attr("cx", d => (x(d.time_from) + x(d.time_to)) / 2)
+                .attr("cy", d => {
+                    const h = self._arcHeight(x(d.time_from), x(d.time_to), d.key);
+                    return axisY - (h / 0.75) * (d._side || 1);
+                })
+                .attr("opacity", self.selectedArc ? 0.05 : opacity);
             const selHit = gHit.selectAll(`path.hit-${className}.${subClass}`)
                 .data(subArcs, d => d.key);
             selHit.exit().remove();
@@ -831,6 +921,16 @@ return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1
 
                             .attr("marker-end", "url(#ef-arrow)");
                         self.tip.style("opacity", 0);
+                            if (!self.forceHourly) {
+        self._suppressDeselect = true;
+        self.selectedArc = d;
+        self._highlightSingleArc(d, "#3B82F6");
+        const tx = self.txMap ? self.txMap.get(d.hashFrom) : null;
+        const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
+        const destAddr = maxOut ? maxOut.addr : (d.addresses[0] ? d.addresses[0].addr : "—");
+                self._showChainPanel(d.hashFrom, destAddr, d.btc, d, false);
+        return;
+    }
 
                         if (self.selectedArc) {
                             const currentRoot = d.chainRoot || self.hashToRoot.get(d.hashFrom) || d.hashFrom;
@@ -1131,6 +1231,74 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
                 (this.lastGranularity !== 'day' ? ` ${String(dt.getUTCHours()).padStart(2,'0')}:00` : '');
             const labelFrom = fmtDT(arc.fromCenterTime);
             const labelTo = fmtDT(arc.toCenterTime);
+            
+                      const flags = this._computeArcOutlierFlags(arc);
+            const flows = arc.addresses;
+            const maxFlow = d3.max(flows, f => f.btc);
+            const minFlow = d3.min(flows, f => f.btc);
+            const avgFlow = arc.btc / flows.length;
+
+            const flagRows = [];
+            if (flags.dominant) {
+                flagRows.push(`<span style="color:#3B82F6">●</span> One transaction makes up <b>${(flags.dominant.pct * 100).toFixed(0)}%</b> of this arc's volume (₿${flags.dominant.flow.btc.toFixed(4)})`);
+            }
+            if (flags.selfLoops.length) {
+                flagRows.push(`<span style="color:#A855F7">●</span> <b>${flags.selfLoops.length}</b> transaction${flags.selfLoops.length > 1 ? 's' : ''} sent funds back to the same address (self-loop)`);
+            }
+           
+                       if (flags.globalOutliers.length) {
+                flagRows.push(`<span style="color:#EF4444">●</span> <b>${flags.globalOutliers.length}</b> transaction${flags.globalOutliers.length > 1 ? 's are' : ' is'} in the top 1% of amounts across the whole dataset`);
+            }
+            if (flags.repeatedAddrFlows.length) {
+                const uniqueRepeated = new Set(flags.repeatedAddrFlows.map(f => f.addr)).size;
+                flagRows.push(`<span style="color:#06B6D4">●</span> <b>${uniqueRepeated}</b> address${uniqueRepeated > 1 ? 'es' : ''} appear more than once in this arc (${flags.repeatedAddrFlows.length} transactions total)`);
+            }
+
+            const shortAddr = a => a.length > 18 ? a.slice(0, 8) + '…' + a.slice(-6) : a;
+                       const dominantFlow = flags.dominant ? flags.dominant.flow : null;
+            const selfLoopSet = new Set(flags.selfLoops.map(f => f.hashTo + '|' + f.addr));
+            const globalOutlierSet = new Set(flags.globalOutliers.map(f => f.hashTo + '|' + f.addr));
+            const repeatedSet = new Set(flags.repeatedAddrFlows.map(f => f.hashTo + '|' + f.addr));
+            const self = this;
+
+                       const sortedFlows = [...flows].sort((a, b) => {
+                const score = f => (dominantFlow === f ? 3 : 0) + (selfLoopSet.has(f.hashTo + '|' + f.addr) ? 2 : 0) + (globalOutlierSet.has(f.hashTo + '|' + f.addr) ? 2 : 0) + (repeatedSet.has(f.hashTo + '|' + f.addr) ? 1 : 0);
+                return score(b) - score(a) || b.btc - a.btc;
+            });
+
+            const rowsHtml = sortedFlows.map(flow => {
+                const tx = self.txMap ? self.txMap.get(flow.hashTo) : null;
+                const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
+                const destAddr = maxOut ? maxOut.addr : "—";
+                const timeStr = flow.timeTo ? d3.utcFormat("%d %b %Y, %H:%M")(flow.timeTo) : "—";
+                const flowKey = flow.hashTo + '|' + flow.addr;
+
+                const badges = [];
+                if (dominantFlow === flow) badges.push('<span style="background:#3B82F614;border:1px solid #3B82F655;color:#3B82F6;padding:1px 6px;border-radius:3px;font-size:8px">dominant</span>');
+                if (selfLoopSet.has(flowKey)) badges.push('<span style="background:#A855F714;border:1px solid #A855F755;color:#A855F7;padding:1px 6px;border-radius:3px;font-size:8px">self-loop</span>');
+                                if (globalOutlierSet.has(flowKey)) badges.push('<span style="background:#EF444414;border:1px solid #EF444455;color:#EF4444;padding:1px 6px;border-radius:3px;font-size:8px">top 1%</span>');
+                if (repeatedSet.has(flowKey)) badges.push('<span style="background:#06B6D414;border:1px solid #06B6D455;color:#06B6D4;padding:1px 6px;border-radius:3px;font-size:8px">repeated addr</span>');
+                badges.push(flow.chainLen > 1
+                    ? `<span style="background:#6b728014;border:1px solid #6b728055;color:#6b7280;padding:1px 6px;border-radius:3px;font-size:8px">chain of ${flow.chainLen}</span>`
+                    : `<span style="background:#6b728014;border:1px solid #6b728055;color:#6b7280;padding:1px 6px;border-radius:3px;font-size:8px">dead end</span>`);
+
+                return `
+                <div style="font-family:monospace;padding:8px;border:1px solid rgba(0,0,0,0.08);border-radius:5px;background:#fafafa;margin-bottom:6px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:3px">
+                        <span style="color:#888;font-size:9px">${timeStr}</span>
+                        <span style="display:flex;gap:3px;flex-wrap:wrap">${badges.join('')}</span>
+                    </div>
+                    <div style="margin-bottom:3px;font-size:10px"><b style="color:#F7931A">₿${flow.btc.toFixed(4)}</b></div>
+                    <div title="${flow.hashTo}" style="color:#555;margin-bottom:2px;font-size:9px">TX: ${shortAddr(flow.hashTo)}</div>
+                    <div title="${flow.addr}" style="color:#3B82F6;margin-bottom:2px;font-size:9px">In: ${shortAddr(flow.addr)}</div>
+                    <div title="${destAddr}" style="color:#F7931A;margin-bottom:5px;font-size:9px">Out: ${shortAddr(destAddr)}</div>
+                                        <button class="ef-trace-btn" data-hashfrom="${flow.hashFrom}" data-hashto="${flow.hashTo}" data-addr="${flow.addr}"
+                        style="width:100%;padding:4px;font-size:9px;border:1px solid #F7931A;color:#F7931A;background:transparent;border-radius:4px;cursor:pointer">
+                        Trace this transaction →
+                    </button>
+                </div>`;
+            }).join('');
+
             body = `
             <div style="color:#888;font-size:9px;margin-bottom:6px">${labelFrom} → ${labelTo}</div>
             <div style="margin-bottom:4px;font-size:10px;color:#555">
@@ -1138,25 +1306,28 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
             </div>
             <div style="margin-bottom:8px;font-size:9px;color:#777">
                 This one arc merges <b style="color:#3B82F6">${arc.count}</b> separate money movements
-                (possibly from different addresses/transactions) that all went from
-                ${labelFrom} to ${labelTo}. Zoom in past the daily view to see each one separately.
+                that all went from ${labelFrom} to ${labelTo}.
+            </div>
+            <div style="display:flex;gap:10px;margin-bottom:8px;font-size:9px;color:#555;flex-wrap:wrap">
+                <span>Largest: <b style="color:#1a1a1a">₿${maxFlow.toFixed(4)}</b></span>
+                <span>Smallest: <b style="color:#1a1a1a">₿${minFlow.toFixed(4)}</b></span>
+                <span>Average: <b style="color:#1a1a1a">₿${avgFlow.toFixed(4)}</b></span>
             </div>
             ${matched ? `
             <div style="margin-bottom:10px;padding:6px 8px;background:${hlColor}14;border:1px solid ${hlColor}55;border-radius:4px;font-size:10px">
                 <span style="color:${hlColor}">Your searched address's share:</span>
                 ₿ ${matched.btc.toFixed(4)} (${matched.count} of ${arc.count})
             </div>` : ''}
-            <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">First transaction hash in this chain</div>
-            <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:10px">
-                <span style="font-family:monospace;font-size:8.5px;color:#333;word-break:break-all;flex:1">${txHash}</span>
-                ${copyBtn(txHash, hlColor)}
-            </div>
-            <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Main destination address</div>
-            <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:4px">
-                <span style="font-family:monospace;font-size:8.5px;color:#F7931A;word-break:break-all;flex:1">${destAddr}</span>
-                ${copyBtn(destAddr, '#F7931A')}
-            </div>`;
-        } else {
+            ${flagRows.length ? `
+            <div style="padding:8px 10px;background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.08);border-radius:6px;font-size:10px;line-height:1.9;margin-bottom:10px">
+                ${flagRows.join('<br>')}
+            </div>` : `<div style="font-size:9px;color:#999;margin-bottom:10px">No unusual patterns detected in this arc.</div>`}
+            <div style="color:#888;font-size:9px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Merged transactions (${flows.length})</div>
+            ${rowsHtml}
+            `;
+        } else {              
+            
+       
             const tx = this.txMap ? this.txMap.get(txHash) : null;
             const timeStr = tx ? d3.timeFormat("%d %b %Y, %H:%M:%S UTC")(tx.time) : '—';
             body = `
@@ -1225,7 +1396,7 @@ ${this._chainPanelShowSparkline ? `
             </div>`;
         }
 
-        this._chainPanel.style("border-color", hlColor);
+              this._chainPanel.style("border-color", hlColor);
         this._chainPanel.style("display", "block").html(`
         <div class="ef-panel-drag-handle" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;cursor:move">
             <span style="font-weight:700;color:${hlColor};font-size:12px">${isDay ? 'Daily flow' : 'Single transaction'}</span>
@@ -1235,6 +1406,26 @@ ${this._chainPanelShowSparkline ? `
         </div>
         ${body}
     `);
+
+               if (isDay && arc) {
+            const self = this;
+            this._chainPanel.selectAll(".ef-trace-btn").on("click", function () {
+                alert('Switching to "One address-link per edge" mode now, to trace this transaction individually.');
+                const hashFrom = this.getAttribute('data-hashfrom');
+                const hashTo = this.getAttribute('data-hashto');
+                const addr = this.getAttribute('data-addr');
+                const cb = document.getElementById('fp-forcehour-enabled');
+                if (cb) cb.checked = true;
+                self.forceHourly = true;
+                self.update(self._lastK ?? d3.zoomTransform(self.svgEl.node()).k, true);
+                const matchArc = self.hourArcByKey.get(`${hashFrom}|${hashTo}|${addr}`);
+                if (matchArc) {
+                    self._suppressDeselect = true;
+                    self.selectedArc = matchArc;
+                    self._highlightChain(matchArc);
+                }
+            });
+        }
 
         // If some hops in the true chain have no drawable arc (they landed in
         // the same time bucket as their prior hop), say so plainly.
@@ -1392,7 +1583,7 @@ const scale = granularity === "hour" ? this.hourColorScale : this.dayColorScale;
         </span>
     `);
     }
-    _arcPassesFilters(a, f = this.activeFilters) {
+           _arcPassesFilters(a, f = this.activeFilters) {
         const gapHours = (a.toCenterTime - a.fromCenterTime) / 3600000;
         if (f.minGapH > 0 && gapHours < f.minGapH) return false;
         if (f.maxGapH !== Infinity && gapHours > f.maxGapH) return false;

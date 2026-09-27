@@ -1,4 +1,4 @@
-class ChartDotPlot {
+/* class ChartDotPlot {
     constructor(selector, data) {
         this.selector = selector;
         this.rawData = data; 
@@ -406,4 +406,4 @@ class ChartDotPlot {
             });
         });
     }
-}
+}*/
