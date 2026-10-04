@@ -58,8 +58,15 @@ async function initApp() {
     try {
         const spentData = await d3.csv("data_cleaned/unique_spent_addresses.csv");
         globalSpentSet = new Set(spentData.map(d => d.address));
-        chartArea.selectAll("*").remove();
-        switchChart('scatter');
+               chartArea.selectAll("*").remove();
+        initScatterFilters();
+
+        // If filters were already applied in this session, redraw the flow chart
+        if (getLastFilterParams()) {
+            initExplorativeFlow();
+        } else {
+            showLandingPlaceholder();
+        }
     } catch (err) {
         console.error("Critical Error:", err);
         chartArea.html(`
@@ -75,7 +82,7 @@ async function initApp() {
 async function loadDataAndDraw(fileName) {
     console.log(`Loading: ${fileName}`);
 
-    const filterContainer = d3.select("#filter-controls-container");
+const filterContainer = d3.select("#backend-filters-container");
     chartInstance = null;
 
     const chartArea = d3.select("#chart-area");
@@ -181,7 +188,7 @@ try {
         );
 
         console.log(`[Export] Saved: data_cleaned/${result.file} — ${result.tx_count} TX, ${result.rows} rows`);
-
+initExplorativeFlow(); 
     } catch (err) {
         console.error("[Export] Errore:", err);
         alert(`Errore di connessione al server.\nAssicurati che server.py sia in esecuzione.\n\n${err.message}`);
@@ -219,106 +226,45 @@ function updateTxCount(n) {
 }*/
 function showLandingPlaceholder() {
     d3.select("#chart-area").html(`
-        <div class="landing-placeholder">
-            <div class="landing-title">₿ BitVas</div>
-            <svg class="landing-chain" viewBox="0 0 480 190" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                    <marker id="lc-arrow" viewBox="0 0 6 6" refX="5" refY="3"
-                            markerWidth="6" markerHeight="6" orient="auto">
-                        <path d="M0,0 L6,3 L0,6 z" fill="rgba(255,255,255,0.75)"/>
-                    </marker>
-                </defs>
-
-                <!-- main chain links -->
-                <g stroke="rgba(255,255,255,0.75)" stroke-width="2" marker-end="url(#lc-arrow)" fill="none">
-                    <path d="M55,95 L120,70"/>
-                    <path d="M120,70 L195,115"/>
-                    <path d="M195,115 L265,85"/>
-                    <path d="M265,85 L335,120"/>
-                    <path d="M335,120 L405,95"/>
-                </g>
-                <!-- peel-off links -->
-                <g stroke="rgba(255,255,255,0.45)" stroke-width="1.6" stroke-dasharray="3,3" marker-end="url(#lc-arrow)" fill="none">
-                    <path d="M55,95 L45,150"/>
-                    <path d="M120,70 L155,25"/>
-                    <path d="M195,115 L200,165"/>
-                    <path d="M265,85 L275,35"/>
-                    <path d="M335,120 L360,160"/>
-                </g>
-
-                <!-- main chain nodes (shrinking BTC amounts) -->
-                <g class="lc-node lc-main" font-family="Segoe UI, sans-serif" font-weight="700" text-anchor="middle">
-                    <circle cx="55"  cy="95"  r="22"/><text x="55"  y="100">50</text>
-                    <circle cx="120" cy="70"  r="19"/><text x="120" y="75">42</text>
-                    <circle cx="195" cy="115" r="16"/><text x="195" y="120">30</text>
-                    <circle cx="265" cy="85"  r="14"/><text x="265" y="90">18</text>
-                    <circle cx="335" cy="120" r="12"/><text x="335" y="124">7</text>
-                    <circle cx="405" cy="95"  r="10"/><text x="405" y="99">…</text>
-                </g>
-                <!-- peeled-off nodes -->
-                <g class="lc-node lc-peel" font-family="Segoe UI, sans-serif" font-weight="700" text-anchor="middle" font-size="10">
-                    <circle cx="45"  cy="150" r="13"/><text x="45"  y="153">8</text>
-                    <circle cx="155" cy="25"  r="12"/><text x="155" y="28">12</text>
-                    <circle cx="200" cy="165" r="11"/><text x="200" y="168">5</text>
-                    <circle cx="275" cy="35"  r="10"/><text x="275" y="38">3</text>
-                    <circle cx="360" cy="160" r="10"/><text x="360" y="163">2</text>
-                </g>
-            </svg>
+        <div class="landing-placeholder-simple">
+            <p>Set your filters on the left, then click <b>Apply & Visualize</b>.</p>
         </div>
     `);
 }
-
-// ─── Switch chart ─────────────────────────────────────────
-
-function switchChart(type) {
-    currentType = type;
+function initScatterFilters() {
     chartInstance = null;
     cleanupExplorativeUI();
 
-    const btn            = d3.select("#toggle-btn");
-    const btnExplorative = d3.select("#toggle-btn-explorative");
-    const controls        = d3.select("#dynamic-controls");
-    const filterContainer = d3.select("#filter-controls-container");
-
-    controls.selectAll("*").remove();
+    const filterContainer = d3.select("#backend-filters-container");
     filterContainer.selectAll("*").remove();
 
-    const applyBtn = document.getElementById('apply-filters-btn');
-    if (applyBtn) applyBtn.style.display = 'none';
+    filterManager = new FilterManager([], () => {}, filterContainer);
 
-       if (type === 'scatter') {
-        setViewChrome('cluster');
-        btn.text("Filters").on("click", () => switchChart('scatter'));
-        btnExplorative.text("Linear Flow Chart").on("click", () => switchChart('explorative'));
+    // Restore the last applied filters into the form (survives page refresh)
+    const saved = getLastFilterParams();
+    if (saved) restoreBackendFilters(saved);
+}
 
-        const select = controls.append("select")
-            .attr("class", "day-selector")
-            .on("change", (event) => {
-                const chosen = ALL_DAYS.find(d => d.file === event.target.value);
-                if (chosen) updateHeaderBadge(chosen.label);
-                loadDataAndDraw(event.target.value);
-            });
+// Puts previously applied filter values back into the Backend Filters form.
+// Infinity is saved as null in JSON, so null/blank shows as empty ("no limit").
+function restoreBackendFilters(p) {
+    const fm = filterManager;
+    const setNum = (sel, v) =>
+        sel.property("value", (v === null || v === undefined || !isFinite(v)) ? "" : v);
 
-        select.selectAll("option")
-            .data(ALL_DAYS).enter()
-            .append("option")
-            .attr("value", d => d.file)
-            .text(d => d.label);
+    fm.startDateInput.property("value", p.startDate || "");
+    fm.endDateInput.property("value", p.endDate || "");
 
-        const defaultDay = ALL_DAYS[0];
-        select.property("value", defaultDay.file);
-        updateHeaderBadge(defaultDay.label);
-        loadDataAndDraw(defaultDay.file);
+    setNum(fm.minValInput, p.minSingleOutput);
+    setNum(fm.maxValInput, p.maxSingleOutput);
+    setNum(fm.minMinInput, p.minMinOutput);
+    setNum(fm.maxMinInput, p.maxMinOutput);
+    setNum(fm.minIn,  p.minInputs);
+    setNum(fm.maxIn,  p.maxInputs);
+    setNum(fm.minOut, p.minOutputs);
+    setNum(fm.maxOut, p.maxOutputs);
 
-    } else if (type === 'explorative') {
-        setViewChrome('flow');
-        btn.text("Filters").on("click", () => switchChart('scatter'));
-        btnExplorative.text("Linear Flow Chart").on("click", () => switchChart('explorative'));
-
-        updateHeaderBadge(null);
-        updateTxCount(null);
-        initExplorativeFlow();
-    }
+    fm.updatePreview();
 }
 function cleanupExplorativeUI() {
     d3.select("#ef-legend-footer").remove();

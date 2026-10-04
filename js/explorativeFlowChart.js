@@ -577,13 +577,13 @@ _pickAggGranularity(k) {
      const windowLabel = this._zoomWindowLabel(k);
        const atMaxZoom = k >= 17.5;
 const GRAN_LABELS = { day: "24-hour", "6h": "6-hour", "3h": "3-hour", "1h": "1-hour" };
-        if (this.forceHourly) {
+                if (this.forceHourly) {
             currentGranularity = "hour"; opHour = 0.85;
-            this.hintBar.text(`Resolution: Individual transactions — ${windowLabel} window` +
+            this.hintBar.text(`Transaction detailed temporal view — ${windowLabel} window` +
                 (atMaxZoom ? " (maximum — data has no finer time resolution)" : ""));
         } else {
             currentGranularity = this._pickAggGranularity(k); opDay = 0.85;
-            this.hintBar.text(`Resolution: flows aggregated by ${GRAN_LABELS[currentGranularity]} windows`);
+            this.hintBar.text(`Aggregated temporal view — grouped by ${GRAN_LABELS[currentGranularity]} windows`);
         }
 
         const thr = this.btcThreshold || 0;
@@ -641,7 +641,6 @@ const GRAN_LABELS = { day: "24-hour", "6h": "6-hour", "3h": "3-hour", "1h": "1-h
         
 this.gNode.selectAll(".node-date-label")
     .style("display", (this._lastK || 1) > 15 ? null : "none");
-this._drawLegend(activeArcs, currentGranularity);
         this._drawLegend(activeArcs, currentGranularity);
 
 
@@ -709,7 +708,15 @@ _arcPath(x1, x2, h, axisY, side = 1) {
 
         this.gArcTop.selectAll("path[data-key]").attr("opacity", 0.05).attr("marker-end", null);
         this.gArcBot.selectAll("path[data-key]").attr("opacity", 0.05).attr("marker-end", null);
-
+const self_ = this;
+this.gArcTop.selectAll("path[data-key]").attr("stroke", function(d) {
+    const scale = d3.select(this).classed('day-arcs') ? self_.dayColorScale : self_.hourColorScale;
+    return scale ? scale(d.btc) : "#265F91";
+});
+this.gArcBot.selectAll("path[data-key]").attr("stroke", function(d) {
+    const scale = d3.select(this).classed('day-arcs') ? self_.dayColorScale : self_.hourColorScale;
+    return scale ? scale(d.btc) : "#265F91";
+});
         const granularity = this.lastGranularity || 'day';
         const allArcs = this.levels[granularity];
         const chainArcs = allArcs.filter(a => {
@@ -727,8 +734,8 @@ _arcPath(x1, x2, h, axisY, side = 1) {
             .enter().append("path")
             .attr("class", "chain-arc")
             .attr("fill", "none")
-            .attr("stroke", "#EC4899")
-            .attr("stroke-linecap", "round")
+            .attr("stroke", d => this._getArcHlColor(d) || "#EC4899")
+                        .attr("stroke-linecap", "round")
             .attr("marker-end", "url(#ef-arrow-hl)")
             .attr("stroke-width", 3.5)
             .attr("opacity", 0)
@@ -763,7 +770,15 @@ return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1
         // Dim every normal arc — only this candidate's own hops stay visible
         this.gArcTop.selectAll("path[data-key]").attr("opacity", 0.05).attr("marker-end", null);
         this.gArcBot.selectAll("path[data-key]").attr("opacity", 0.05).attr("marker-end", null);
-
+        const self_ = this;
+this.gArcTop.selectAll("path[data-key]").attr("stroke", function(d) {
+    const scale = d3.select(this).classed('day-arcs') ? self_.dayColorScale : self_.hourColorScale;
+    return scale ? scale(d.btc) : "#265F91";
+});
+this.gArcBot.selectAll("path[data-key]").attr("stroke", function(d) {
+    const scale = d3.select(this).classed('day-arcs') ? self_.dayColorScale : self_.hourColorScale;
+    return scale ? scale(d.btc) : "#265F91";
+});
         if (!chainArcs || !chainArcs.length) return;
 
         this._activeChainArcs = chainArcs;
@@ -803,13 +818,23 @@ return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1
             })
             .transition().duration(300).attr("opacity", 1);
     }
-    _highlightSingleArc(arc, color = "#3B82F6") {
+       _highlightSingleArc(arc, color) {
+    const focusColor = this._getArcHlColor(arc);
+    color = color || focusColor || "#EC4899";
     this.gChain.selectAll("*").remove();
     this.gHitTop.style("pointer-events", "none");
     this.gHitBot.style("pointer-events", "none");
     this.gArcTop.selectAll("path[data-key]").attr("opacity", 0.05).attr("marker-end", null);
     this.gArcBot.selectAll("path[data-key]").attr("opacity", 0.05).attr("marker-end", null);
-
+    const self_ = this;
+this.gArcTop.selectAll("path[data-key]").attr("stroke", function(d) {
+    const scale = d3.select(this).classed('day-arcs') ? self_.dayColorScale : self_.hourColorScale;
+    return scale ? scale(d.btc) : "#265F91";
+});
+this.gArcBot.selectAll("path[data-key]").attr("stroke", function(d) {
+    const scale = d3.select(this).classed('day-arcs') ? self_.dayColorScale : self_.hourColorScale;
+    return scale ? scale(d.btc) : "#265F91";
+});
     this._activeChainArcs = [arc];
     this._ensureChainNodes([arc]);
     this._centerOnArc(arc);
@@ -924,7 +949,7 @@ return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1
                             if (!self.forceHourly) {
         self._suppressDeselect = true;
         self.selectedArc = d;
-        self._highlightSingleArc(d, "#3B82F6");
+               self._highlightSingleArc(d);
         const tx = self.txMap ? self.txMap.get(d.hashFrom) : null;
         const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
         const destAddr = maxOut ? maxOut.addr : (d.addresses[0] ? d.addresses[0].addr : "—");
@@ -990,16 +1015,11 @@ return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1
         return `
             <div style="font-weight:700;color:${hlColor || '#EC4899'};margin-bottom:6px">
                 ${this.lastGranularity} flow
-                <span style="font-size:9px;color:#888;font-weight:400;margin-left:6px">(click to trace chain)</span>
+                <span style="font-size:9px;color:#888;font-weight:400;margin-left:6px">(click to see details)</span>
             </div>
             <div style="margin-bottom:2px;font-size:10px;color:#555">${labelFrom} → ${labelTo}</div>
             <div style="margin-bottom:2px">Combined volume: <b style="color:#1a1a1a">₿ ${d.btc.toFixed(4)}</b></div>
-            <div style="margin-bottom:2px">Individual flows combined here: <b style="color:#3B82F6">${d.count}</b></div>
-            ${matched ? `
-            <div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,0.12)">
-                <div style="color:${hlColor};font-size:10px">Your searched address's share:</div>
-                <div>₿ ${matched.btc.toFixed(4)} across ${matched.count} of the ${d.count} flows above</div>
-            </div>` : ''}
+                       <div style="margin-bottom:2px">Individual flows combined here: <b style="color:#3B82F6">${d.count}</b></div>
         `;
     }
 
@@ -1042,19 +1062,13 @@ return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1
             .attr("r", this.NODE_R)
             .attr("fill", "rgba(247,147,26,0.12)")
             .attr("stroke", "#F7931A").attr("stroke-width", 1.2);
-            const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-let lastDateStr = null;
+         const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 entered.append("text")
     .attr("class", "node-date-label")
     .attr("y", -(this.NODE_R + 6))
     .attr("text-anchor", "middle")
     .attr("font-size", "10px").attr("font-weight", "700").attr("fill", "#F7931A")
-    .text(d => {
-        const dateStr = `${d.time.getUTCDate()} ${M[d.time.getUTCMonth()]}`;
-        if (dateStr === lastDateStr) return "";
-        lastDateStr = dateStr;
-        return dateStr;
-    });
+    .text(d => `${d.time.getUTCDate()} ${M[d.time.getUTCMonth()]}`);
     }
     _ensureChainNodes(chainArcs) {
         const existing = new Set();
@@ -1202,8 +1216,7 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
         // Panel color follows which chain is on screen: amber for a Run Detection
         // candidate, pink for a plain arc click — never hardcoded, so it never
         // clashes with the arc color it's describing.
-        const baseColor = this._chainPanelShowSparkline ? '#F59E0B' : '#EC4899';
-        const hlColor = arc ? (this._getArcHlColor(arc) || baseColor) : baseColor;
+               const hlColor = this._chainPanelShowSparkline ? '#F59E0B' : '#EC4899';
 
         // Position/total always come from the arcs actually navigable via
         // Prev/Next — never from chain metadata that may count hops with no
@@ -1218,12 +1231,11 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
 
         const matched = arc ? this._getMatchedStats(arc) : null;
 
-        const copyBtn = (val, color) =>
-            `<button onclick="navigator.clipboard.writeText('${val}').then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='copy',1200)})"
-            style="flex-shrink:0;background:transparent;border:1px solid ${color};
-                   color:${color};font-size:9px;padding:2px 8px;border-radius:3px;
-                   cursor:pointer;white-space:nowrap">copy</button>`;
-
+                           const copyBtn = (val, color) =>
+            `<button class="ef-copy-btn" data-copy="${val.replace(/"/g, '&quot;')}"
+            style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;
+                   width:22px;height:22px;background:transparent;border:1px solid ${color};
+                   color:${color};border-radius:4px;cursor:pointer;padding:0">${ic('copy', 11)}</button>`;
         let body;
         if (isDay && arc) {
             const M = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -1279,9 +1291,8 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
                                 if (globalOutlierSet.has(flowKey)) badges.push('<span style="background:#EF444414;border:1px solid #EF444455;color:#EF4444;padding:1px 6px;border-radius:3px;font-size:8px">top 1%</span>');
                 if (repeatedSet.has(flowKey)) badges.push('<span style="background:#06B6D414;border:1px solid #06B6D455;color:#06B6D4;padding:1px 6px;border-radius:3px;font-size:8px">repeated addr</span>');
                 badges.push(flow.chainLen > 1
-                    ? `<span style="background:#6b728014;border:1px solid #6b728055;color:#6b7280;padding:1px 6px;border-radius:3px;font-size:8px">chain of ${flow.chainLen}</span>`
-                    : `<span style="background:#6b728014;border:1px solid #6b728055;color:#6b7280;padding:1px 6px;border-radius:3px;font-size:8px">dead end</span>`);
-
+                    ? `<span style="background:#6b728014;border:1px solid #6b728055;color:#6b7280;padding:1px 6px;border-radius:3px;font-size:8px">${flow.chainLen}-hop chain</span>`
+: `<span style="background:#6b728014;border:1px solid #6b728055;color:#6b7280;padding:1px 6px;border-radius:3px;font-size:8px">no further hops</span>`);
                 return `
                 <div style="font-family:monospace;padding:8px;border:1px solid rgba(0,0,0,0.08);border-radius:5px;background:#fafafa;margin-bottom:6px">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:3px">
@@ -1289,13 +1300,15 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
                         <span style="display:flex;gap:3px;flex-wrap:wrap">${badges.join('')}</span>
                     </div>
                     <div style="margin-bottom:3px;font-size:10px"><b style="color:#F7931A">₿${flow.btc.toFixed(4)}</b></div>
-                    <div title="${flow.hashTo}" style="color:#555;margin-bottom:2px;font-size:9px">TX: ${shortAddr(flow.hashTo)}</div>
-                    <div title="${flow.addr}" style="color:#3B82F6;margin-bottom:2px;font-size:9px">In: ${shortAddr(flow.addr)}</div>
-                    <div title="${destAddr}" style="color:#F7931A;margin-bottom:5px;font-size:9px">Out: ${shortAddr(destAddr)}</div>
-                                        <button class="ef-trace-btn" data-hashfrom="${flow.hashFrom}" data-hashto="${flow.hashTo}" data-addr="${flow.addr}"
-                        style="width:100%;padding:4px;font-size:9px;border:1px solid #F7931A;color:#F7931A;background:transparent;border-radius:4px;cursor:pointer">
-                        Trace this transaction →
-                    </button>
+                                     <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;font-size:9px;color:#555">
+                        <span title="${flow.hashTo}">TX: ${shortAddr(flow.hashTo)}</span>${copyBtn(flow.hashTo, '#555')}
+                    </div>
+                    <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px;font-size:9px;color:#333">
+                        <span title="${flow.addr}">In: ${shortAddr(flow.addr)}</span>${copyBtn(flow.addr, '#333')}
+                    </div>
+                    <div style="display:flex;align-items:center;gap:4px;margin-bottom:5px;font-size:9px;color:#333">
+                        <span title="${destAddr}">Out: ${shortAddr(destAddr)}</span>${copyBtn(destAddr, '#333')}
+                    </div>
                 </div>`;
             }).join('');
 
@@ -1304,14 +1317,10 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
             <div style="margin-bottom:4px;font-size:10px;color:#555">
                 Combined volume: <b style="color:#1a1a1a">₿ ${btc.toFixed(4)}</b>
             </div>
-            <div style="margin-bottom:8px;font-size:9px;color:#777">
-                This one arc merges <b style="color:#3B82F6">${arc.count}</b> separate money movements
-                that all went from ${labelFrom} to ${labelTo}.
-            </div>
+            
             <div style="display:flex;gap:10px;margin-bottom:8px;font-size:9px;color:#555;flex-wrap:wrap">
                 <span>Largest: <b style="color:#1a1a1a">₿${maxFlow.toFixed(4)}</b></span>
-                <span>Smallest: <b style="color:#1a1a1a">₿${minFlow.toFixed(4)}</b></span>
-                <span>Average: <b style="color:#1a1a1a">₿${avgFlow.toFixed(4)}</b></span>
+                               <span>Smallest: <b style="color:#1a1a1a">₿${minFlow.toFixed(4)}</b></span>
             </div>
             ${matched ? `
             <div style="margin-bottom:10px;padding:6px 8px;background:${hlColor}14;border:1px solid ${hlColor}55;border-radius:4px;font-size:10px">
@@ -1336,12 +1345,12 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
             <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">TX hash</div>
             <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:10px">
                 <span style="font-family:monospace;font-size:8.5px;color:#333;word-break:break-all;flex:1">${txHash}</span>
-                ${copyBtn(txHash, hlColor)}
-            </div>
-            <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Largest output → address</div>
+                ${copyBtn(txHash, '#555')}
+                            </div>
+                       <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Main output (continues the chain)</div>
             <div style="display:flex;align-items:flex-start;gap:6px;margin-bottom:12px">
-                <span style="font-family:monospace;font-size:8.5px;color:#F7931A;word-break:break-all;flex:1">${destAddr}</span>
-                ${copyBtn(destAddr, '#F7931A')}
+                <span style="font-family:monospace;font-size:8.5px;color:#333;word-break:break-all;flex:1">${destAddr}</span>
+                ${copyBtn(destAddr, '#555')}
             </div>
             <div style="color:#555;font-size:10px;margin-bottom:8px">
                 Volume: <b style="color:#1a1a1a">₿ ${btc.toFixed(4)}</b>
@@ -1399,33 +1408,21 @@ ${this._chainPanelShowSparkline ? `
               this._chainPanel.style("border-color", hlColor);
         this._chainPanel.style("display", "block").html(`
         <div class="ef-panel-drag-handle" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;cursor:move">
-            <span style="font-weight:700;color:${hlColor};font-size:12px">${isDay ? 'Daily flow' : 'Single transaction'}</span>
+            <span style="font-weight:700;color:${hlColor};font-size:12px">${isDay ? ' Transactions details' : 'Transaction Detail'}</span>
             ${!isDay ? `<span style="font-size:10px;color:#555">TX ${pos} / ${total}</span>` : ''}
             <button onclick="this.closest('.ef-chain-panel').style.display='none'"
                 style="background:none;border:none;color:#555;font-size:14px;cursor:pointer;padding:0;line-height:1">✕</button>
         </div>
         ${body}
     `);
-
-               if (isDay && arc) {
-            const self = this;
-            this._chainPanel.selectAll(".ef-trace-btn").on("click", function () {
-                alert('Switching to "One address-link per edge" mode now, to trace this transaction individually.');
-                const hashFrom = this.getAttribute('data-hashfrom');
-                const hashTo = this.getAttribute('data-hashto');
-                const addr = this.getAttribute('data-addr');
-                const cb = document.getElementById('fp-forcehour-enabled');
-                if (cb) cb.checked = true;
-                self.forceHourly = true;
-                self.update(self._lastK ?? d3.zoomTransform(self.svgEl.node()).k, true);
-                const matchArc = self.hourArcByKey.get(`${hashFrom}|${hashTo}|${addr}`);
-                if (matchArc) {
-                    self._suppressDeselect = true;
-                    self.selectedArc = matchArc;
-                    self._highlightChain(matchArc);
-                }
+        this._chainPanel.selectAll(".ef-copy-btn").on("click", function () {
+            const val = this.getAttribute("data-copy");
+            const original = this.innerHTML;
+            navigator.clipboard.writeText(val).then(() => {
+                this.innerHTML = ic('check', 11);
+                setTimeout(() => { this.innerHTML = ic('copy', 11); }, 1200);
             });
-        }
+        });
 
         // If some hops in the true chain have no drawable arc (they landed in
         // the same time bucket as their prior hop), say so plainly.
@@ -1645,9 +1642,6 @@ const scale = granularity === "hour" ? this.hourColorScale : this.dayColorScale;
             if (f.minAddrTx > 0 && count < f.minAddrTx) return false;
         }
 
-        const a = addr ? addr.toLowerCase() : "";
-        if (f.excludes.length > 0 && f.excludes.some(ex => a.includes(ex))) return false;
-        if (f.queries.length > 0 && !f.queries.some(q => a.includes(q))) return false;
 
         if (btc < f.minB || btc > f.maxB) return false;
         return true;
@@ -1765,10 +1759,9 @@ _buildPeelPanel() {
                     <span><b style="color:#F59E0B">${c.length}</b> hops</span>
                     <span>${c.startBtc.toFixed(3)} ₿ → ${c.endBtc.toFixed(3)} ₿</span>
                 </div>
-               <div style="font-size:9px;color:#888;margin-top:2px">
-                    ${(c.declinePct * 100).toFixed(1)}% total decline
-                    · avg retain ~${(c.avgRetainPct * 100).toFixed(1)}%
-                    · root ${c.root.slice(0, 10)}…
+                             <div style="font-size:9px;color:#888;margin-top:2px">
+                    ${(c.declinePct * 100).toFixed(1)}% total decline over the chain
+                    · starts at ${c.root.slice(0, 10)}…
                 </div>
             </div>`).join('');
 

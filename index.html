@@ -10,51 +10,78 @@
 <div id="app">
 
     <header class="app-header">
-        <div class="header-left">
-            <div class="header-icon">₿</div>
-            <h1>Bitcoin Transaction Analysis</h1>
-            <span id="header-badge" class="header-badge" style="display:none"></span>
-        </div>
+       <div class="header-left">
+    <svg class="brand-logo" viewBox="0 0 40 40" width="26" height="26">
+        <rect width="40" height="40" rx="9" fill="#f7931a"/>
+        <polyline points="8,23 18,14 27,22 33,14" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="1.6"/>
+        <circle cx="8"  cy="23" r="5.5" fill="#fff"/>
+        <circle cx="18" cy="14" r="4.2" fill="#fff"/>
+        <circle cx="27" cy="22" r="3.2" fill="#fff"/>
+        <circle cx="33" cy="14" r="2.4" fill="#fff"/>
+    </svg>
+    <h1><span class="brand-name">PChain<b>VAS</b></span><span class="brand-sub">Peeling Chain Visual Analytics System</span></h1>
+    <span id="header-badge" class="header-badge" style="display:none"></span>
+</div>
+<div class="header-search">
+    <input type="text" id="fp-hl-input" placeholder="Search address…" />
+<button class="fp-add" id="fp-hl-btn" title="Add">+</button>
+</div>
         <span id="header-tx-count" class="header-tx-count"></span>
     </header>
-
+<div id="header-tags-bar" class="header-tags-bar">
+    <div class="fp-tags" id="fp-hl-list">
+        <span class="fp-empty" id="fp-hl-empty">Search an address above to focus on it</span>
+    </div>
+</div>
     <div class="dashboard">
         <aside class="sidebar">
-             <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
+    <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
 
-            <div class="sb-section">
-                <div class="sb-label">View</div>
-                <button id="toggle-btn" class="btn-switch"></button>
-                <button id="toggle-btn-explorative" class="btn-switch">Linear Flow Chart</button>
-    
+    <!-- hidden day selector — still needed by main.js/FilterManager, never shown -->
+    <div id="sb-day-section" style="display:none">
+        <div id="dynamic-controls"></div>
+    </div>
 
-            </div>
+   <div class="sb-filters">
+    <details class="sb-accordion" id="acc-data" open>
+        <summary>
+<span class="sb-ic" data-ic="filter" data-size="16"></span>
+            Data Filters
+<span class="sb-chev" data-ic="chevron" data-size="14"></span>
+        </summary>
+        <div id="backend-filters-container"></div>
+    </details>
 
-          <div class="sb-section" id="sb-day-section">
-                <div class="sb-label">Day</div>
-                <div id="dynamic-controls"></div>
-            </div>
+      <details class="sb-accordion" id="acc-explore">
+        <summary>
+<span class="sb-ic" data-ic="activity" data-size="16"></span>
+            Flow Analysis
+<span class="sb-chev" data-ic="chevron" data-size="14"></span>
+        </summary>
+        <div id="explore-flow-container">
+            <p class="fp-placeholder">Apply Data Filters and click "Apply & Visualize" to unlock this and if already applied then wait for data to load.</p>
+        </div>
+    </details>
 
-            <div class="sb-filters" id="filter-controls-container"></div>
+    <details class="sb-accordion" id="acc-peel">
+        <summary>
+<span class="sb-ic" data-ic="trendDown" data-size="16"></span>
+            Peeling Chain Detection
+<span class="sb-chev" data-ic="chevron" data-size="14"></span>
+        </summary>
+        <div id="peel-detection-container">
+            <p class="fp-placeholder">Apply Data Filters and click "Apply & Visualize" to unlock this and if already applied then wait for data to load.</p>
+        </div>
+    </details>
+</div>
 
-            <div class="sb-footer">
-                <span class="tx-count-label">TX found: <b id="tx-count-val">—</b></span>
-<!-- Bubble Chart view removed — this button used to refresh the live
-         bubble chart with new filter values. No chart to refresh anymore,
-         so it's disabled rather than deleted in case it's needed again.
-    <button id="apply-filters-btn" class="btn-apply" style="display:none">UPDATE BUBBLE VIEW </button>
-    -->                <button id="export-csv-btn">UPDATE & EXPORT </button>
-            </div>
 
-        </aside>
-
+    <div class="sb-footer">
+        <button id="export-csv-btn">Apply & Visualize</button>
+    </div>
+</aside>
         <main id="viz-container" class="viz-container">
-            <div class="viz-toolbar" id="viz-toolbar">
-                <span class="viz-chip chip-red">● &gt;500 BTC</span>
-                <span class="viz-chip chip-amber">● 100–500 BTC</span>
-                <span class="viz-chip chip-green">● &lt;100 BTC</span>
-                <span class="viz-hint">Zoom · Pan · Click for details</span>
-            </div>
+           
             <div id="chart-area"></div>
         </main>
 
@@ -72,7 +99,7 @@
     </div>
 </div>
 
-
+<script src="js/icons.js"></script>
 <script src="js/dataLoader.js"></script>
 <script src="js/chartDotPlot.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
@@ -89,6 +116,26 @@
     document.getElementById('close-panel').addEventListener('click', () => {
         document.getElementById('transaction-details-panel').classList.remove('open');
     });
+</script>
+<script>
+document.querySelectorAll('.sb-accordion').forEach(d => {
+    d.addEventListener('toggle', () => {
+        if (!d.open) return;
+        const exclusiveGroup = ['acc-data', 'acc-explore', 'acc-peel'];
+        // Data Filters stays exclusive with the other two, but Flow Analysis
+        // and Peeling Chain Detection can both be open at the same time.
+        if (d.id === 'acc-data') {
+            document.querySelectorAll('.sb-accordion').forEach(o => { if (o !== d) o.open = false; });
+        } else if (exclusiveGroup.includes(d.id)) {
+            document.getElementById('acc-data').open = false;
+        }
+    });
+});
+</script>
+<script>
+document.querySelectorAll('[data-ic]').forEach(el => {
+    el.innerHTML = ic(el.dataset.ic, +el.dataset.size || 14);
+});
 </script>
 
 </body>

@@ -8,7 +8,6 @@ async function initExplorativeFlow(focusAddress) {
     // done this correctly. Fixes inconsistent behavior depending on
     // which screen you navigated from.
     document.getElementById('sb-day-section')?.style.setProperty('display', 'none');
-    document.querySelector('.sb-footer')?.style.setProperty('display', 'none');
     document.querySelectorAll('.viz-chip').forEach(el => el.style.setProperty('display', 'none'));
     const chartArea = d3.select("#chart-area");
     chartArea.selectAll("*").remove();
@@ -21,7 +20,7 @@ async function initExplorativeFlow(focusAddress) {
     const applyBtn = document.getElementById('apply-filters-btn');
     if (applyBtn) applyBtn.style.display = 'none';
 
-    chartArea.append("p").attr("class","loading-text").text("Loading UTXO flow data…");
+    chartArea.append("p").attr("class","loading-text").text("Loading…");
 
     try {
 
@@ -67,8 +66,7 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
                     <span>darker = more BTC</span>
                     <span title="A point in time where funds arrived or moved on">Circle = transaction time</span>
                     <span title="The chain trace shown after clicking an arc"><b style="color:#EC4899">●</b> Pink = selected chain</span>
-                    <span title="A run shown after Run Detection"><b style="color:#F59E0B">●</b> Amber = peeling chain candidate</span>
-                </div>
+                                        <span title="A run shown after Run Detection"><b style="color:#F59E0B">●</b> Amber = peeling chain candidate</span>
             `);
 
         const chart = new ExplorativeFlowChart(chartArea, cleanedRaw);
@@ -81,7 +79,7 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
             chart.applyFilters({
                 queries: [q],
                 excludes: [],
-hlColorMap: new Map([[q, '#EC4899']]),
+hlColorMap: new Map([[q, FP_HL_COLORS[0]]]),
                 minB: 0, maxB: Infinity
             });
 
@@ -122,32 +120,23 @@ hlColorMap: new Map([[q, '#EC4899']]),
     }
 }
 
-// Color palette for highlighted (user-searched) addresses.
-// This is intentionally a small, distinct set — used ONLY for the
-// handful of addresses you actively search/highlight, never for the
-// default arc coloring (which now uses a single calm hue, see chart.js).
-const FP_HL_COLORS = [
-    "#00FFCC", "#FF6B6B", "#FFD93D", "#6BCB77",
-    "#4D96FF", "#FF922B", "#CC5DE8", "#F06595",
-    "#20C997", "#74C0FC"
-];
+const FP_HL_COLORS = ["#8B5CF6", "#84CC16", "#D946EF", "#EAB308", "#92400E"];
+let hlColorIdx = 0;
 
 function buildExplorativeSidebar(chart) {
-    const container = d3.select("#filter-controls-container");
-    container.selectAll("*").remove();
+const exploreContainer = d3.select("#explore-flow-container");
+const peelContainer = d3.select("#peel-detection-container");
+    exploreContainer.selectAll("*").remove();
+    peelContainer.selectAll("*").remove();
 
     const fpState = { hl: [] };
     // Address → color map, stable for the whole session
-    const hlColorMap = new Map();
-    let hlColorIdx = 0;
+   const hlColorMap = new Map();
 
-    function getHlColor(addr) {
-        if (!hlColorMap.has(addr)) {
-            hlColorMap.set(addr, FP_HL_COLORS[hlColorIdx % FP_HL_COLORS.length]);
-            hlColorIdx++;
-        }
-        return hlColorMap.get(addr);
-    }
+function getHlColor(addr) {
+    if (!hlColorMap.has(addr)) hlColorMap.set(addr, FP_HL_COLORS[hlColorIdx++ % FP_HL_COLORS.length]);
+    return hlColorMap.get(addr);
+}
 
     function fpRenderTags(type) {
         const list  = document.getElementById(`fp-${type}-list`);
@@ -157,8 +146,7 @@ function buildExplorativeSidebar(chart) {
         fpState[type].forEach(val => {
             const tag = document.createElement('div');
             tag.className = `fp-tag fp-tag-${type}`;
-            const display = val.length > 28 ? val.slice(0, 12) + '…' + val.slice(-8) : val;
-
+const display = val.length > 14 ? val.slice(0, 6) + '…' + val.slice(-4) : val;
             if (type === 'hl') {
                 const color = getHlColor(val);
                 tag.style.background = color + '18';
@@ -212,13 +200,14 @@ function fpApply() {
         maxGapH:    (gapEnabled.checked && gapInput.value)       ? +gapInput.value    : Infinity
     });
 }
-    container.html(`
-        <style>
+           d3.select("#frontend-filters-style").remove();
+    d3.select("head").append("style").attr("id", "frontend-filters-style").html(`
             .fp-section { display:flex; flex-direction:column; gap:6px; padding:10px 0; }
             .fp-section + .fp-section { border-top:1px solid var(--border-inner); }
             .fp-lbl {
                 font-size:10px; font-weight:600; color:var(--text-hint);
                 text-transform:uppercase; letter-spacing:0.07em;
+                display:flex; align-items:center; gap:6px;
             }
             .fp-hint { font-size:10px; color:var(--text-hint); margin-top:2px; line-height:1.4; }
             .fp-input-wrap { display:flex; gap:6px; }
@@ -251,105 +240,91 @@ function fpApply() {
                 padding:0; line-height:1; color:inherit; opacity:0.5; font-size:14px; flex-shrink:0;
             }
             .fp-tag button:hover { opacity:1; }
-            .fp-check-row { display:flex; align-items:center; gap:8px; }
+            .fp-check-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
             .fp-check-row input[type="number"] {
-                flex:1; padding:6px 8px;
+                flex:1; min-width:70px; padding:6px 8px;
                 border:1px solid var(--border); border-radius:5px;
                 font-size:11px; background:#fafafa; color:var(--text-primary); outline:none;
                 transition:border-color .15s;
             }
             .fp-check-row input[type="number"]:focus { border-color:var(--orange); }
-            .fp-check-row input[type="checkbox"] { accent-color:var(--orange); cursor:pointer; }
+            .fp-check-row input[type="checkbox"] { accent-color:var(--orange); cursor:pointer; flex-shrink:0; }
             .fp-check-row select {
                 padding:5px 6px; border:1px solid var(--border); border-radius:5px;
                 font-size:10px; background:#fafafa; color:var(--text-primary); outline:none;
             }
-        </style>
-
-        <div class="fp-section">
-            <div class="fp-lbl">Highlight addresses</div>
-            <div class="fp-input-wrap">
-                <input type="text" id="fp-hl-input" placeholder="Address or prefix…" />
-                <button class="fp-add" id="fp-hl-btn">+</button>
-            </div>
-            <div class="fp-tags" id="fp-hl-list">
-                <span class="fp-empty" id="fp-hl-empty">none</span>
-            </div>
-        </div>
-
-       
-
-        <div class="fp-section">
-            <div class="fp-lbl">Min gap between hops (hours)</div>
-            <div class="fp-check-row">
-                <input type="checkbox" id="fp-mingap-enabled" />
-                <input type="number" id="fp-mingap-input" placeholder="e.g. 1" min="0" />
-            </div>
-        </div>
-
-        <div class="fp-section">
-            <div class="fp-lbl">Max gap between hops (hours)</div>
-            <div class="fp-check-row">
-                <input type="checkbox" id="fp-gap-enabled" />
-                <input type="number" id="fp-gap-input" placeholder="e.g. 6" min="1" />
-            </div>
-        </div>
-
-
-        <div class="fp-section">
-            <div class="fp-lbl">Granularity</div>
-            <div class="fp-check-row">
-                <input type="checkbox" id="fp-forcehour-enabled" />
-                <label for="fp-forcehour-enabled" style="font-size:11px;cursor:pointer">
-                    One address-link per edge
-                </label>
-            </div>
-        </div>
-
- <div class="fp-section" id="fp-peel-section">
-            <div class="fp-lbl">Suggested Peeling Chain Candidates</div>
-            <div class="fp-check-row">
-                <label style="font-size:10px;color:var(--text-hint);width:100px">Min retain %</label>
-                <input type="number" id="fp-peel-retain-input" value="90" min="50" max="100" step="1" style="width:70px" />
-                <span style="font-size:10px;color:var(--text-hint)">%</span>
-            </div>
-            <div class="fp-check-row">
-                <label style="font-size:10px;color:var(--text-hint);width:100px">Min length</label>
-                <input type="number" id="fp-peel-minlen-input" value="3" min="2" style="width:70px" />
-                <span style="font-size:10px;color:var(--text-hint)">hops</span>
-            </div>
-            <div class="fp-check-row">
-    <input type="checkbox" id="fp-peel-decreasing" checked />
-    <label for="fp-peel-decreasing" style="font-size:10px;cursor:pointer">Require shrinking amount per hop</label>
-</div>
-            
-            <button id="fp-detect-peel-btn" class="fp-add" style="width:100%;padding:7px;margin-top:6px">
-                Run Detection
-            </button>
-          <div id="fp-peel-hint" class="fp-hint">Enable "One address-link per edge" to run detection</div> 
-        </div>
+            .fp-mini { font-size:10px; color:var(--text-hint); white-space:nowrap; }
+                        .fp-peel-box {
+                background: rgba(245,158,11,0.05);
+                border: 1px solid rgba(245,158,11,0.25);
+                border-radius: 8px;
+                padding: 10px;
+            }
+                            .fp-retain-row {
+                display: grid;
+                grid-template-columns: auto 1fr auto 1fr;
+                gap: 6px;
+                align-items: center;
+            }
+            .fp-retain-row input[type="number"] {
+                width: 100%;
+                min-width: 0;
+                box-sizing: border-box;
+                padding: 6px 6px;
+                border: 1px solid var(--border);
+                border-radius: 5px;
+                font-size: 11px;
+                background: #fafafa;
+            }
+                
     `);
 
-    const btcSection = container.append("div").attr("class", "fp-section")
-        .style("border-top", "1px solid var(--border-inner)");
+    exploreContainer.html(`
+<div class="fp-section">
+    <div class="fp-lbl">${ic('clock')}Hop gap (hours)</div>
+    <div class="fp-check-row">
+        <input type="checkbox" id="fp-mingap-enabled" />
+        <input type="number" id="fp-mingap-input" placeholder="min e.g. 1" min="0" />
+        <input type="checkbox" id="fp-gap-enabled" />
+        <input type="number" id="fp-gap-input" placeholder="max e.g. 6" min="1" />
+    </div>
+</div>
+<div class="fp-section">
+    <div class="fp-lbl">${ic('eye')}Minimum BTC Flow Value</div>
+    <div id="fp-btc-label" style="font-size:10px;color:var(--orange)">0 BTC</div>
+    <input type="range" id="fp-btc-slider" min="0" max="500" value="0" style="width:100%" />
+</div>
+<div class="fp-section">
+    <div class="fp-lbl">${ic('layers')}View Resolution</div>
+    <div class="fp-check-row">
+        <input type="checkbox" id="fp-forcehour-enabled" />
+        <label for="fp-forcehour-enabled" style="font-size:11px;cursor:pointer">Detailed transaction view</label>
+        `);
 
-    btcSection.append("div").attr("class", "fp-lbl").text("Minimum BTC visible");
+        peelContainer.html(`
+<div class="fp-peel-box">
+    <div class="fp-hint" style="margin-bottom:8px">For more precise results, apply the Flow Analysis filters above first.</div>
+       <div class="fp-retain-row">
+        <label class="fp-mini">Retain %</label>
+        <input type="number" id="fp-peel-retain-input" value="90" min="50" max="100" step="1" />
+        <label class="fp-mini">Min hops</label>
+        <input type="number" id="fp-peel-minlen-input" value="3" min="2" />
+    </div>
+    <div class="fp-check-row">
+        <input type="checkbox" id="fp-peel-decreasing" checked />
+        <label for="fp-peel-decreasing" style="font-size:10px;cursor:pointer">Require shrinking amount per hop</label>
+    </div>
+    <button id="fp-detect-peel-btn" class="fp-add" style="width:100%;padding:6px;font-size:11px;margin-top:6px">Detect Candidates</button>
+    <div id="fp-peel-hint" class="fp-hint">Enable "Detailed transaction view" to run detection</div>
+</div>
+    `);
+       document.getElementById('fp-btc-slider').addEventListener('input', function() {
+        chart.btcThreshold = +this.value;
+        document.getElementById('fp-btc-label').textContent = `${(+this.value).toFixed(0)} BTC`;
+        chart.update(d3.zoomTransform(chart.svgEl.node()).k, false);
+    });
 
-    const sliderLabel = btcSection.append("div")
-        .style("font-size", "10px")
-        .style("color", "var(--orange)")
-        .text("0 BTC");
-
-    btcSection.append("input")
-        .attr("type", "range").attr("min", 0).attr("max", 500).attr("value", 0)
-        .style("width", "100%")
-        .on("input", function() {
-            chart.btcThreshold = +this.value;
-            sliderLabel.text(`${(+this.value).toFixed(0)} BTC`);
-            chart.update(d3.zoomTransform(chart.svgEl.node()).k, false);
-        });
-
-        document.getElementById('fp-hl-btn').addEventListener('click', () => fpAddTag('hl'));
+    document.getElementById('fp-hl-btn').addEventListener('click', () => fpAddTag('hl'));
     document.getElementById('fp-hl-input').addEventListener('keydown', e => { if (e.key === 'Enter') fpAddTag('hl'); });
 const peelBtn  = document.getElementById('fp-detect-peel-btn');
     const peelHint = document.getElementById('fp-peel-hint');
@@ -389,4 +364,4 @@ const results = chart._detectPeelingChainCandidates(minLen, retainPct, requireDe
         });
 
     fpRenderTags('hl');
-}
+    document.getElementById('acc-explore').open = true;}

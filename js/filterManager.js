@@ -65,8 +65,8 @@ init() {
         // the live Dot Chart preview still shows just the single day
         // picked in the Day dropdown, since that's all that's loaded here.
         const dateSection = wrapper.append("div").attr("class", "filter-section");
-        dateSection.append("label").text("Date range (start – end)");
-        const dateRow = dateSection.append("div").style("display", "flex").style("gap", "6px");
+dateSection.append("label").html(`${ic('calendar')}Date range (start – end)`);
+            const dateRow = dateSection.append("div").style("display", "flex").style("gap", "6px");
         this.startDateInput = dateRow.append("input")
             .attr("type", "date").attr("value", "2024-05-24")
             .attr("class", "fp-date-input");
@@ -76,32 +76,28 @@ init() {
 
        // ── Largest Output range (min – max) ────────────────────────
         const largestSection = wrapper.append("div").attr("class", "filter-section");
-        largestSection.append("label").text("Largest Output (min – max BTC)");
-        const largestRow = largestSection.append("div").style("display", "flex").style("gap", "6px");
+largestSection.append("label").html(`<span class="fp-coin fp-coin-lg">₿</span>Largest Output (min – max BTC)`);            const largestRow = largestSection.append("div").style("display", "flex").style("gap", "6px");
         this.minValInput = largestRow.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", 0).attr("placeholder", "min");
         this.maxValInput = largestRow.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", "").attr("placeholder", "no limit");
 
         // ── Smallest Output range (min – max) ← NUOVO ────────────────
         const smallestSection = wrapper.append("div").attr("class", "filter-section");
-        smallestSection.append("label").text("Smallest Output (min – max BTC)");
-        const smallestRow = smallestSection.append("div").style("display", "flex").style("gap", "6px");
+smallestSection.append("label").html(`<span class="fp-coin fp-coin-sm">₿</span>Smallest Output (min – max BTC)`);        const smallestRow = smallestSection.append("div").style("display", "flex").style("gap", "6px");
         this.minMinInput = smallestRow.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", 0).attr("placeholder", "min");
         this.maxMinInput = smallestRow.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", "").attr("placeholder", "no limit");
 
         // ── Inputs range ──────────────────────────────────────────
         const inSection = wrapper.append("div").attr("class", "filter-section");
-        inSection.append("label").text("Inputs (min – max)");
-        const inRow = inSection.append("div").style("display", "flex").style("gap", "6px");
+inSection.append("label").html(`${ic('logIn')}Inputs (min – max)`);
+            const inRow = inSection.append("div").style("display", "flex").style("gap", "6px");
         this.minIn = inRow.append("input").attr("type", "number").attr("value", 0).attr("placeholder", "min");
-        this.maxIn = inRow.append("input").attr("type", "number").attr("value", this.filterState.maxInputs).attr("placeholder", "no limit");
+this.maxIn = inRow.append("input").attr("type", "number").attr("value", "").attr("placeholder", "no limit");
 
         // ── Outputs range ─────────────────────────────────────────
         const outSection = wrapper.append("div").attr("class", "filter-section");
-        outSection.append("label").text("Outputs (min – max)");
-        const outRow = outSection.append("div").style("display", "flex").style("gap", "6px");
+outSection.append("label").html(`<span class="ic-flip">${ic('logIn')}</span>Outputs (min – max)`);            const outRow = outSection.append("div").style("display", "flex").style("gap", "6px");
         this.minOut = outRow.append("input").attr("type", "number").attr("value", 0).attr("placeholder", "min");
-        this.maxOut = outRow.append("input").attr("type", "number").attr("value", this.filterState.maxOutputs).attr("placeholder", "no limit");
-
+this.maxOut = outRow.append("input").attr("type", "number").attr("value", "").attr("placeholder", "no limit");
        this.infoArea = wrapper.append("div").attr("class", "filter-info");
 
         // ── Listeners ─────────────────────────────────────────────
@@ -134,9 +130,10 @@ init() {
         this.minMinOutput    = +this.minMinInput.property("value") || 0;
         this.maxMinOutput    = +this.maxMinInput.property("value") || Infinity;   // NEW
         this.filterState.minInputs  = +this.minIn.property("value")     || 0;
-        this.filterState.maxInputs  = +this.maxIn.property("value")     || 0;
+        this.filterState.maxInputs  = +this.maxIn.property("value")     || Infinity;
+
         this.filterState.minOutputs = +this.minOut.property("value")    || 0;
-        this.filterState.maxOutputs = +this.maxOut.property("value")    || 0;
+        this.filterState.maxOutputs = +this.maxOut.property("value")    || Infinity;
 
         const filtered = this.applyFilters();
         const countEl = document.getElementById('tx-count-val');
