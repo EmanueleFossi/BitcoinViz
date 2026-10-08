@@ -362,6 +362,16 @@ e.addresses.push({ addr: inAddr, btc: volumeBtc, hops, chainLen, hashFrom: origi
         }
         return null;
     }
+        _matchColorFor(obj) {
+        if (obj.addresses) return this._getArcHlColor(obj);
+        if (!this.hlColorMap || this.hlColorMap.size === 0) return null;
+        const addr = (obj.addr || obj.inAddr || '').toLowerCase();
+        if (!addr) return null;
+        for (const [query, color] of this.hlColorMap) {
+            if (addr.includes(query)) return color;
+        }
+        return null;
+    }
     _computeArcOutlierFlags(arc) {
         const flows = arc.addresses;
         const total = arc.btc;
@@ -729,13 +739,13 @@ this.gArcBot.selectAll("path[data-key]").attr("stroke", function(d) {
         this._centerOnArc(chainArcs[0]);
         const x = this.currentX, axisY = this._axisY;
 
-        this.gChain.selectAll("path.chain-arc")
+               this.gChain.selectAll("path.chain-arc")
             .data(chainArcs, d => d.key)
             .enter().append("path")
             .attr("class", "chain-arc")
             .attr("fill", "none")
-            .attr("stroke", d => this._getArcHlColor(d) || "#EC4899")
-                        .attr("stroke-linecap", "round")
+            .attr("stroke", "#EC4899")
+            .attr("stroke-linecap", "round")
             .attr("marker-end", "url(#ef-arrow-hl)")
             .attr("stroke-width", 3.5)
             .attr("opacity", 0)
@@ -759,7 +769,7 @@ return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1
                 self._showChainPanel(d.hashFrom, destAddr, d.btc, d, false);
             })
             .transition().duration(300).attr("opacity", 1);
-    }
+            }
     _drawChainArcsOnly(chainArcs) {
         this.gChain.selectAll("*").remove();
         this.gHitTop.style("pointer-events", "none");
@@ -882,23 +892,7 @@ return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1
 
                 .attr("marker-end", opacity > 0 ? "url(#ef-arrow)" : null)
                 .attr("opacity", self.selectedArc ? 0.05 : opacity);
-                     const flaggedArcs = className === "day-arcs" ? subArcs.filter(a => a._hasOutlier) : [];
-            const dotSel = gVis.selectAll(`circle.outlier-dot`).data(flaggedArcs, d => d.key);
-            dotSel.exit().remove();
-            dotSel.enter().append("circle")
-                .attr("class", "outlier-dot")
-                .attr("r", 3.5)
-                .attr("fill", "#EF4444")
-                .attr("stroke", "white")
-                .attr("stroke-width", 0.8)
-                .attr("pointer-events", "none")
-              .merge(dotSel)
-                .attr("cx", d => (x(d.time_from) + x(d.time_to)) / 2)
-                .attr("cy", d => {
-                    const h = self._arcHeight(x(d.time_from), x(d.time_to), d.key);
-                    return axisY - (h / 0.75) * (d._side || 1);
-                })
-                .attr("opacity", self.selectedArc ? 0.05 : opacity);
+                     
             const selHit = gHit.selectAll(`path.hit-${className}.${subClass}`)
                 .data(subArcs, d => d.key);
             selHit.exit().remove();
@@ -1058,17 +1052,16 @@ return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1
             .enter().append("g").attr("class", "ef-node");
 
       // Plain ring — no ₿ glyph inside (was visually noisy/confusing).
-        entered.append("circle")
+                                         entered.append("circle")
             .attr("r", this.NODE_R)
-            .attr("fill", "rgba(247,147,26,0.12)")
-            .attr("stroke", "#F7931A").attr("stroke-width", 1.2);
+            .attr("fill", "#78716c")
+            .attr("stroke", "#44403c").attr("stroke-width", 1.2);
          const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 entered.append("text")
     .attr("class", "node-date-label")
     .attr("y", -(this.NODE_R + 6))
     .attr("text-anchor", "middle")
-    .attr("font-size", "10px").attr("font-weight", "700").attr("fill", "#F7931A")
-    .text(d => `${d.time.getUTCDate()} ${M[d.time.getUTCMonth()]}`);
+        .attr("font-size", "10px").attr("font-weight", "700").attr("fill", "#78716c")      .text(d => `${d.time.getUTCDate()} ${M[d.time.getUTCMonth()]}`);
     }
     _ensureChainNodes(chainArcs) {
         const existing = new Set();
@@ -1088,10 +1081,10 @@ entered.append("text")
             .enter().append("g").attr("class", "ef-node");
 
      // Plain ring — no ₿ glyph inside (was visually noisy/confusing).
-        entered.append("circle")
+                                    entered.append("circle")
             .attr("r", this.NODE_R)
-            .attr("fill", "rgba(247,147,26,0.12)")
-            .attr("stroke", "#F7931A").attr("stroke-width", 1.2);
+            .attr("fill", "#78716c")
+            .attr("stroke", "#44403c").attr("stroke-width", 1.2);
 
 const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 let lastDateStr2 = null;
@@ -1099,8 +1092,7 @@ entered.append("text")
     .attr("class", "node-date-label")
     .attr("y", -(this.NODE_R + 6))
     .attr("text-anchor", "middle")
-    .attr("font-size", "10px").attr("font-weight", "700").attr("fill", "#F7931A")
-    .text(d => {
+        .attr("font-size", "10px").attr("font-weight", "700").attr("fill", "#78716c")     .text(d => {
         const dateStr = `${d.time.getUTCDate()} ${M[d.time.getUTCMonth()]}`;
         if (dateStr === lastDateStr2) return "";
         lastDateStr2 = dateStr;
@@ -1228,6 +1220,7 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
         const navArcs = usingFullHops ? this._sparklineHops : (this._activeChainArcs || []);
         const pos = usingFullHops ? (this._sparklineIdx + 1) : (this._activeChainIdx + 1);
         const total = navArcs.length;
+                const matchList = navArcs.map((d, i) => ({ idx: i, color: this._matchColorFor(d) })).filter(m => m.color);
 
         const matched = arc ? this._getMatchedStats(arc) : null;
 
@@ -1252,8 +1245,7 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
 
             const flagRows = [];
             if (flags.dominant) {
-                flagRows.push(`<span style="color:#3B82F6">●</span> One transaction makes up <b>${(flags.dominant.pct * 100).toFixed(0)}%</b> of this arc's volume (₿${flags.dominant.flow.btc.toFixed(4)})`);
-            }
+                flagRows.push(`<span style="color:#6366F1">●</span> One transaction makes up <b>${(flags.dominant.pct * 100).toFixed(0)}%</b> of this arc's volume (₿${flags.dominant.flow.btc.toFixed(4)})`);            }
             if (flags.selfLoops.length) {
                 flagRows.push(`<span style="color:#A855F7">●</span> <b>${flags.selfLoops.length}</b> transaction${flags.selfLoops.length > 1 ? 's' : ''} sent funds back to the same address (self-loop)`);
             }
@@ -1286,8 +1278,7 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
                 const flowKey = flow.hashTo + '|' + flow.addr;
 
                 const badges = [];
-                if (dominantFlow === flow) badges.push('<span style="background:#3B82F614;border:1px solid #3B82F655;color:#3B82F6;padding:1px 6px;border-radius:3px;font-size:8px">dominant</span>');
-                if (selfLoopSet.has(flowKey)) badges.push('<span style="background:#A855F714;border:1px solid #A855F755;color:#A855F7;padding:1px 6px;border-radius:3px;font-size:8px">self-loop</span>');
+                if (dominantFlow === flow) badges.push('<span style="background:#6366F114;border:1px solid #6366F155;color:#6366F1;padding:1px 6px;border-radius:3px;font-size:8px">dominant</span>');                if (selfLoopSet.has(flowKey)) badges.push('<span style="background:#A855F714;border:1px solid #A855F755;color:#A855F7;padding:1px 6px;border-radius:3px;font-size:8px">self-loop</span>');
                                 if (globalOutlierSet.has(flowKey)) badges.push('<span style="background:#EF444414;border:1px solid #EF444455;color:#EF4444;padding:1px 6px;border-radius:3px;font-size:8px">top 1%</span>');
                 if (repeatedSet.has(flowKey)) badges.push('<span style="background:#06B6D414;border:1px solid #06B6D455;color:#06B6D4;padding:1px 6px;border-radius:3px;font-size:8px">repeated addr</span>');
                 badges.push(flow.chainLen > 1
@@ -1330,7 +1321,8 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
             ${flagRows.length ? `
             <div style="padding:8px 10px;background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.08);border-radius:6px;font-size:10px;line-height:1.9;margin-bottom:10px">
                 ${flagRows.join('<br>')}
-            </div>` : `<div style="font-size:9px;color:#999;margin-bottom:10px">No unusual patterns detected in this arc.</div>`}
+            </div>`
+: `<div style="font-size:9px;color:#999;margin-bottom:10px">No self-loop, dominant transaction, repeated address, or top-1% outlier detected among the ${flows.length} transaction${flows.length > 1 ? 's' : ''} merged into this arc.</div>`        }
             <div style="color:#888;font-size:9px;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Merged transactions (${flows.length})</div>
             ${rowsHtml}
             `;
@@ -1339,6 +1331,7 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
        
             const tx = this.txMap ? this.txMap.get(txHash) : null;
             const timeStr = tx ? d3.timeFormat("%d %b %Y, %H:%M:%S UTC")(tx.time) : '—';
+                        const matchedSingle = arc ? this._getMatchedStats(arc) : null;
             body = `
             <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Exact time</div>
             <div style="margin-bottom:10px;font-size:10px;color:#333">${timeStr}</div>
@@ -1352,9 +1345,13 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
                 <span style="font-family:monospace;font-size:8.5px;color:#333;word-break:break-all;flex:1">${destAddr}</span>
                 ${copyBtn(destAddr, '#555')}
             </div>
-            <div style="color:#555;font-size:10px;margin-bottom:8px">
+                       <div style="color:#555;font-size:10px;margin-bottom:8px">
                 Volume: <b style="color:#1a1a1a">₿ ${btc.toFixed(4)}</b>
             </div>
+            ${matchedSingle ? `
+            <div style="margin-bottom:10px;padding:6px 8px;background:${hlColor}14;border:1px solid ${hlColor}55;border-radius:4px;font-size:10px">
+                <span style="color:${hlColor}">This transaction matches your searched address.</span>
+            </div>` : ''}
             <div style="background:${hlColor}12;border:1px solid ${hlColor}40;
                  border-radius:4px;padding:6px 8px;font-size:10px">
                 <div style="color:${hlColor};font-weight:700;margin-bottom:4px">Chain summary</div>
@@ -1362,7 +1359,14 @@ const isDay = (this.lastGranularity || 'day') !== 'hour';
                     ? ` <span style="color:#777">(of ${this._chainTrueTotal} total)</span>` : ''
                 }</div>
                 <div style="color:#555">This transaction is: <b style="color:#1a1a1a">number ${pos} of ${total}</b></div>
-${this._chainPanelShowSparkline ? `
+                       ${matchList.length ? `
+                <div style="margin-top:6px;padding-top:6px;border-top:1px solid rgba(0,0,0,0.12)">
+                    <div style="font-size:9px;color:#555;margin-bottom:4px">Your searched address${matchList.length > 1 ? 'es appear' : ' appears'} at:</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:4px">
+                        ${matchList.map(m => `<button onclick="window._efChart._gotoHopIndex(${m.idx})" style="font-size:9px;padding:2px 7px;border-radius:3px;border:1px solid ${m.color};color:${m.color};background:${m.color}14;cursor:pointer">#${m.idx + 1}</button>`).join('')}
+                    </div>
+                </div>` : ''}
+                ${this._chainPanelShowSparkline ? `
     <div style="display:flex;justify-content:flex-end;margin-bottom:2px">
         <button onclick="window._efChart._toggleSparklineView()"
             style="background:transparent;border:1px solid ${hlColor};color:${hlColor};
@@ -1394,10 +1398,7 @@ ${this._chainPanelShowSparkline ? `
                              (no separate arc — shown as a hollow dot above, still counted)
                            </div>`
                         : '';
-                })() : ''}                <div style="color:#555;margin-top:4px;font-size:9px">
-                    Each hop = the biggest output of one transaction gets spent again in the next one.
-                    The smaller output at each step is the "peeled" amount.
-                </div>
+                                        })() : ''}
                 <div style="display:flex;justify-content:space-between;margin-top:8px">
                     <button onclick="window._efChart._gotoHop(-1)" style="flex:1;margin-right:4px;padding:5px;background:transparent;border:1px solid ${hlColor};color:${hlColor};border-radius:4px;cursor:pointer;font-size:10px">◀ Prev hop</button>
                     <button onclick="window._efChart._gotoHop(1)" style="flex:1;margin-left:4px;padding:5px;background:transparent;border:1px solid ${hlColor};color:${hlColor};border-radius:4px;cursor:pointer;font-size:10px">Next hop ▶</button>
@@ -1408,8 +1409,8 @@ ${this._chainPanelShowSparkline ? `
               this._chainPanel.style("border-color", hlColor);
         this._chainPanel.style("display", "block").html(`
         <div class="ef-panel-drag-handle" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;cursor:move">
-            <span style="font-weight:700;color:${hlColor};font-size:12px">${isDay ? ' Transactions details' : 'Transaction Detail'}</span>
-            ${!isDay ? `<span style="font-size:10px;color:#555">TX ${pos} / ${total}</span>` : ''}
+            <span style="font-weight:700;color:${hlColor};font-size:12px">${isDay ? 'Merged Flow Details' : (this._chainPanelShowSparkline ? 'Peeling Chain Step' : 'Transaction Detail')}</span>
+        ${!isDay ? `<span style="font-size:10px;color:#555">TX ${pos} / ${total}</span>` : ''}
             <button onclick="this.closest('.ef-chain-panel').style.display='none'"
                 style="background:none;border:none;color:#555;font-size:14px;cursor:pointer;padding:0;line-height:1">✕</button>
         </div>
@@ -1469,6 +1470,31 @@ ${this._chainPanelShowSparkline ? `
     const destAddr = maxOut ? maxOut.addr : (d.addresses[0]?.addr || "—");
     this._showChainPanel(d.hashFrom, destAddr, d.btc, d);
 }
+    _gotoHopIndex(idx) {
+        if (this._chainPanelShowSparkline && this._sparklineHops && this._sparklineHops.length) {
+            if (idx < 0 || idx >= this._sparklineHops.length) return;
+            this._sparklineIdx = idx;
+            const hop = this._sparklineHops[idx];
+            const matchingArc = this.hourArcByKey.get(`${hop.hashFrom}|${hop.hashTo}|${hop.addr}`);
+            if (matchingArc) {
+                this.selectedArc = matchingArc;
+                this._activeChainIdx = (this._activeChainArcs || []).findIndex(a => a.key === matchingArc.key);
+            }
+            const tx = this.txMap.get(hop.hashFrom);
+            const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
+            const destAddr = maxOut ? maxOut.addr : hop.addr;
+            this._showChainPanel(hop.hashFrom, destAddr, hop.btc, matchingArc || null, true);
+            return;
+        }
+        if (!this._activeChainArcs || idx < 0 || idx >= this._activeChainArcs.length) return;
+        this._activeChainIdx = idx;
+        const d = this._activeChainArcs[idx];
+        this.selectedArc = d;
+        const tx = this.txMap.get(d.hashFrom);
+        const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
+        const destAddr = maxOut ? maxOut.addr : (d.addresses[0]?.addr || "—");
+        this._showChainPanel(d.hashFrom, destAddr, d.btc, d);
+    }
 _toggleSparklineView() {
     this._sparklineDayView = !this._sparklineDayView;
     if (this._sparklineHops && this._sparklineHops.length) {
@@ -1759,9 +1785,8 @@ _buildPeelPanel() {
                     <span><b style="color:#F59E0B">${c.length}</b> hops</span>
                     <span>${c.startBtc.toFixed(3)} ₿ → ${c.endBtc.toFixed(3)} ₿</span>
                 </div>
-                             <div style="font-size:9px;color:#888;margin-top:2px">
+                                           <div style="font-size:9px;color:#888;margin-top:2px">
                     ${(c.declinePct * 100).toFixed(1)}% total decline over the chain
-                    · starts at ${c.root.slice(0, 10)}…
                 </div>
             </div>`).join('');
 

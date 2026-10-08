@@ -52,22 +52,50 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
         // into account. Building it after (old order) let the chart claim
         // that space for itself first, then the footer pushed total height
         // past the card's height → gap under the hint text + scrollbar.
-        d3.select(chartArea.node().parentNode || chartArea.node())
+                  d3.select(chartArea.node().parentNode || chartArea.node())
             .append("div")
             .attr("id", "ef-legend-footer")
             .style("padding", "6px 14px")
             .style("font-size", "10px")
             .style("color", "#888")
             .style("border-top", "1px solid var(--border-inner)")
+            .style("position", "relative")
             .html(`
                 <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
                     <span><b style="color:#265F91">●</b> Blue = aggregated TXs</span>
                     <span><b style="color:#1B7A70">●</b> Teal = Single address-link flow</span>
-                    <span>darker = more BTC</span>
-                    <span title="A point in time where funds arrived or moved on">Circle = transaction time</span>
-                    <span title="The chain trace shown after clicking an arc"><b style="color:#EC4899">●</b> Pink = selected chain</span>
-                                        <span title="A run shown after Run Detection"><b style="color:#F59E0B">●</b> Amber = peeling chain candidate</span>
+                    <span>Darker = more BTC</span>
+<span><b style="color:#78716c">●</b> Gray node = flow start/end</span><span title="Pink marks the flow you clicked to inspect, regardless of any active address search"><b style="color:#EC4899">●</b> Pink = selected flow</span><span title="A chain flagged by Detect Candidates"><b style="color:#F59E0B">●</b> Amber = peeling candidate</span>          <button id="ef-legend-help-btn" title="Detailed explanation" style="background:none;border:1px solid var(--border);border-radius:4px;width:20px;height:20px;cursor:pointer;color:#555;font-size:11px;flex-shrink:0">ⓘ</button>
+                </div>
+                               <div id="ef-legend-help" style="display:none;position:absolute;bottom:100%;right:14px;margin-bottom:6px;width:320px;max-width:calc(100vw - 40px);padding:10px 12px;background:#ffffff;border:1px solid var(--border);border-radius:6px;line-height:1.7;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:20">
+                    <b>Node</b> (gray-brown ring) — a point in time where a flow begins or ends.<br>                    <b>Edge</b> — a BTC flow between two points in time.<br>
+                    <b>Hop</b> — the biggest output of one transaction gets spent again in the next; the smaller output at each step is the "peeled" amount.<br>
+                    <hr style="border:none;border-top:1px solid var(--border-inner);margin:6px 0">
+                    <b>Self-loop</b> — funds returned to the same address they came from.<br>
+                    <b>Dominant transaction</b> — one transaction makes up 70%+ of this flow's volume.<br>
+                    <b>Repeated address</b> — the same input address appears 2 or more times in this flow.<br>
+                    <b>Top 1%</b> — this transaction's amount is in the top 1% across the whole loaded dataset.<br>
+                    <hr style="border:none;border-top:1px solid var(--border-inner);margin:6px 0">
+                    <b>Color brackets</b> — BTC amounts are split into 4 shaded brackets on a log scale, fitted to your current dataset, so both small and large transfers stay visible. The "×N/step" ratio changes with your data and filters.<br>
+                    <b>Selected flow</b> (pink) — the transaction or chain you clicked to inspect.<br>
+                    <b>Peeling candidate</b> (amber) — a chain flagged by Detect Candidates as matching a peeling pattern.<br>
+                    <b>Address search</b> — each searched address is assigned its own color, shown on its tag and on matching flows, so multiple searches stay distinguishable.                </div>
             `);
+
+        let legendHelpOpen = false;
+        const legendBtn = document.getElementById('ef-legend-help-btn');
+        const legendHelp = document.getElementById('ef-legend-help');
+        legendBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            legendHelpOpen = !legendHelpOpen;
+            legendHelp.style.display = legendHelpOpen ? 'block' : 'none';
+        });
+        document.addEventListener('click', (e) => {
+            if (legendHelpOpen && !legendHelp.contains(e.target) && e.target !== legendBtn) {
+                legendHelpOpen = false;
+                legendHelp.style.display = 'none';
+            }
+        });
 
         const chart = new ExplorativeFlowChart(chartArea, cleanedRaw);
         buildExplorativeSidebar(chart);
@@ -281,7 +309,7 @@ function fpApply() {
 
     exploreContainer.html(`
 <div class="fp-section">
-    <div class="fp-lbl">${ic('clock')}Hop gap (hours)</div>
+    <div class="fp-lbl">${ic('clock')}Temporal Gap (Hours)</div>
     <div class="fp-check-row">
         <input type="checkbox" id="fp-mingap-enabled" />
         <input type="number" id="fp-mingap-input" placeholder="min e.g. 1" min="0" />
@@ -290,7 +318,7 @@ function fpApply() {
     </div>
 </div>
 <div class="fp-section">
-    <div class="fp-lbl">${ic('eye')}Minimum BTC Flow Value</div>
+    <div class="fp-lbl">${ic('eye')}Minimum Flow Value (BTC)</div>
     <div id="fp-btc-label" style="font-size:10px;color:var(--orange)">0 BTC</div>
     <input type="range" id="fp-btc-slider" min="0" max="500" value="0" style="width:100%" />
 </div>
@@ -299,12 +327,13 @@ function fpApply() {
     <div class="fp-check-row">
         <input type="checkbox" id="fp-forcehour-enabled" />
         <label for="fp-forcehour-enabled" style="font-size:11px;cursor:pointer">Detailed transaction view</label>
+    </div>
+</div>
         `);
 
         peelContainer.html(`
 <div class="fp-peel-box">
-    <div class="fp-hint" style="margin-bottom:8px">For more precise results, apply the Flow Analysis filters above first.</div>
-       <div class="fp-retain-row">
+<div class="fp-hint" style="margin-bottom:8px">For more precise results, apply the Temporal Gap and Minimum Flow Value filters above first.</div>       <div class="fp-retain-row">
         <label class="fp-mini">Retain %</label>
         <input type="number" id="fp-peel-retain-input" value="90" min="50" max="100" step="1" />
         <label class="fp-mini">Min hops</label>
