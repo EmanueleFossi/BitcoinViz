@@ -65,7 +65,7 @@ init() {
         // the live Dot Chart preview still shows just the single day
         // picked in the Day dropdown, since that's all that's loaded here.
         const dateSection = wrapper.append("div").attr("class", "filter-section");
-dateSection.append("label").html(`${ic('calendar')}Date range (start – end)`);
+dateSection.append("label").html(`${ic('calendar')} Date Range (start – end)`);
             const dateRow = dateSection.append("div").style("display", "flex").style("gap", "6px");
         this.startDateInput = dateRow.append("input")
             .attr("type", "date").attr("value", "2024-05-24")
@@ -88,14 +88,14 @@ smallestSection.append("label").html(`<span class="fp-coin fp-coin-sm">₿</span
 
         // ── Inputs range ──────────────────────────────────────────
         const inSection = wrapper.append("div").attr("class", "filter-section");
-inSection.append("label").html(`${ic('logIn')}Inputs (min – max)`);
+inSection.append("label").html(`${ic('logIn')}FanIn (min – max)`);
             const inRow = inSection.append("div").style("display", "flex").style("gap", "6px");
         this.minIn = inRow.append("input").attr("type", "number").attr("value", 0).attr("placeholder", "min");
 this.maxIn = inRow.append("input").attr("type", "number").attr("value", "").attr("placeholder", "no limit");
 
         // ── Outputs range ─────────────────────────────────────────
         const outSection = wrapper.append("div").attr("class", "filter-section");
-outSection.append("label").html(`<span class="ic-flip">${ic('logIn')}</span>Outputs (min – max)`);            const outRow = outSection.append("div").style("display", "flex").style("gap", "6px");
+outSection.append("label").html(`<span class="ic-flip">${ic('logIn')}</span>FanOut (min – max)`);            const outRow = outSection.append("div").style("display", "flex").style("gap", "6px");
         this.minOut = outRow.append("input").attr("type", "number").attr("value", 0).attr("placeholder", "min");
 this.maxOut = outRow.append("input").attr("type", "number").attr("value", "").attr("placeholder", "no limit");
        this.infoArea = wrapper.append("div").attr("class", "filter-info");
