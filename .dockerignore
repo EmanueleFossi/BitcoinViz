@@ -1,0 +1,9 @@
+
+.git/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.csv
+data_cleaned/
+data_filtered/

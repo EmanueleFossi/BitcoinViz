@@ -309,7 +309,7 @@ function fpApply() {
 
     exploreContainer.html(`
 <div class="fp-section">
-    <div class="fp-lbl">${ic('clock')}Temporal Gap (Hours)</div>
+<div class="fp-lbl">Temporal Gap (Hours)</div>
     <div class="fp-check-row">
         <input type="checkbox" id="fp-mingap-enabled" />
         <input type="number" id="fp-mingap-input" placeholder="min e.g. 1" min="0" />
@@ -318,12 +318,12 @@ function fpApply() {
     </div>
 </div>
 <div class="fp-section">
-    <div class="fp-lbl">${ic('eye')}Minimum Flow Value (BTC)</div>
+<div class="fp-lbl">Minimum Flow Value (BTC)</div>
     <div id="fp-btc-label" style="font-size:10px;color:var(--orange)">0 BTC</div>
     <input type="range" id="fp-btc-slider" min="0" max="500" value="0" style="width:100%" />
 </div>
 <div class="fp-section">
-    <div class="fp-lbl">${ic('layers')}View Resolution</div>
+<div class="fp-lbl">View Resolution</div>
     <div class="fp-check-row">
         <input type="checkbox" id="fp-forcehour-enabled" />
         <label for="fp-forcehour-enabled" style="font-size:11px;cursor:pointer">Detailed transaction view</label>

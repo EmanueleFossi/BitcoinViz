@@ -1,5 +1,5 @@
 // Lucide icons, inline (no dependency). ic(name, size) returns an <svg> string.
-const LUCIDE = {
+ const LUCIDE = {
   calendar:  '<rect width="18" height="18" x="3" y="4" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
   upRight:   '<path d="M7 7h10v10"/><path d="M7 17 17 7"/>',
   downLeft:  '<path d="M17 7 7 17"/><path d="M17 17H7V7"/>',

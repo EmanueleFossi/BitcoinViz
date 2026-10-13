@@ -72,7 +72,7 @@ async function initApp() {
         chartArea.html(`
             <div style="color:red;padding:20px;border:1px solid red;">
                 <h3>Initialization Error</h3>
-                <p>File not found <b>data/unique_spent_addresses.csv</b>.</p>
+<p>${err.message}</p>
             </div>
         `);
     }

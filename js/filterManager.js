@@ -65,7 +65,7 @@ init() {
         // the live Dot Chart preview still shows just the single day
         // picked in the Day dropdown, since that's all that's loaded here.
         const dateSection = wrapper.append("div").attr("class", "filter-section");
-dateSection.append("label").html(`${ic('calendar')} Date Range (start – end)`);
+dateSection.append("label").text("Time Interval (start – end)");
             const dateRow = dateSection.append("div").style("display", "flex").style("gap", "6px");
         this.startDateInput = dateRow.append("input")
             .attr("type", "date").attr("value", "2024-05-24")
@@ -76,26 +76,29 @@ dateSection.append("label").html(`${ic('calendar')} Date Range (start – end)`)
 
        // ── Largest Output range (min – max) ────────────────────────
         const largestSection = wrapper.append("div").attr("class", "filter-section");
-largestSection.append("label").html(`<span class="fp-coin fp-coin-lg">₿</span>Largest Output (min – max BTC)`);            const largestRow = largestSection.append("div").style("display", "flex").style("gap", "6px");
+        largestSection.append("label").text("Largest Output (min – max BTC)");
+        const largestRow = largestSection.append("div").style("display", "flex").style("gap", "6px");
         this.minValInput = largestRow.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", 0).attr("placeholder", "min");
         this.maxValInput = largestRow.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", "").attr("placeholder", "no limit");
 
         // ── Smallest Output range (min – max) ← NUOVO ────────────────
         const smallestSection = wrapper.append("div").attr("class", "filter-section");
-smallestSection.append("label").html(`<span class="fp-coin fp-coin-sm">₿</span>Smallest Output (min – max BTC)`);        const smallestRow = smallestSection.append("div").style("display", "flex").style("gap", "6px");
+        smallestSection.append("label").text("Smallest Output (min – max BTC)");
+        const smallestRow = smallestSection.append("div").style("display", "flex").style("gap", "6px");
         this.minMinInput = smallestRow.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", 0).attr("placeholder", "min");
         this.maxMinInput = smallestRow.append("input").attr("type", "number").attr("min", 0).attr("step", 0.01).attr("value", "").attr("placeholder", "no limit");
 
         // ── Inputs range ──────────────────────────────────────────
         const inSection = wrapper.append("div").attr("class", "filter-section");
-inSection.append("label").html(`${ic('logIn')}FanIn (min – max)`);
+inSection.append("label").text("Fan-in (min – max)");
             const inRow = inSection.append("div").style("display", "flex").style("gap", "6px");
         this.minIn = inRow.append("input").attr("type", "number").attr("value", 0).attr("placeholder", "min");
 this.maxIn = inRow.append("input").attr("type", "number").attr("value", "").attr("placeholder", "no limit");
 
         // ── Outputs range ─────────────────────────────────────────
         const outSection = wrapper.append("div").attr("class", "filter-section");
-outSection.append("label").html(`<span class="ic-flip">${ic('logIn')}</span>FanOut (min – max)`);            const outRow = outSection.append("div").style("display", "flex").style("gap", "6px");
+outSection.append("label").text("Fan-out (min – max)");
+      const outRow = outSection.append("div").style("display", "flex").style("gap", "6px");
         this.minOut = outRow.append("input").attr("type", "number").attr("value", 0).attr("placeholder", "min");
 this.maxOut = outRow.append("input").attr("type", "number").attr("value", "").attr("placeholder", "no limit");
        this.infoArea = wrapper.append("div").attr("class", "filter-info");

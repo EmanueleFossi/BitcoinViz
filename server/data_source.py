@@ -9,8 +9,13 @@ this function — server.py, filters.py, and the frontend never change.
 import os
 import pandas as pd
 
-DATA_DIR = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")), "data_cleaned")
-
+DATA_DIR = os.environ.get(
+    "DATA_DIR",
+    os.path.join(
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "..")),
+        "data_cleaned"
+    )
+)
 ALL_FILES = [
     "Bitcoin_Data_2024_05_24.csv",
     "Bitcoin_Data_2024_05_25.csv",

@@ -4,3 +4,6 @@ data/
 
 # Not loading any csv
 *.csv
+
+__pycache__/
+*.pyc
