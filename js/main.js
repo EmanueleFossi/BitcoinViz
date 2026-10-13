@@ -1,7 +1,6 @@
 let currentType = 'scatter'; 
 let chartInstance = null; 
 let filterManager = null; 
-let globalSpentSet = new Set(); 
 
 // ─── Costante globale giorni (da Doc 1) ───────────────────
 const ALL_DAYS = [
@@ -56,8 +55,7 @@ async function initApp() {
     chartArea.html("<p class='loading-text'>Loading global index...</p>");
 
     try {
-        const spentData = await d3.csv("data_cleaned/unique_spent_addresses.csv");
-        globalSpentSet = new Set(spentData.map(d => d.address));
+        
                chartArea.selectAll("*").remove();
         initScatterFilters();
 
