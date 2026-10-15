@@ -482,6 +482,7 @@ _buildSVG() {
         this.gGrid = this.svgEl.append("g").attr("class", "ef-grid").attr("pointer-events", "none");
         this.gAxis = this.svgEl.append("g").attr("class", "ef-axis").attr("transform", `translate(0,${this._axisY})`);
         this.gArc = this.svgEl.append("g").style("display", "none");
+                this.gNode.raise();   // draw nodes above the axis line so no line crosses them
 
         const self = this;
         this.svgEl.on("click.deselect", function () {
@@ -593,8 +594,7 @@ const GRAN_LABELS = { day: "24-hour", "6h": "6-hour", "3h": "3-hour", "1h": "1-h
                 (atMaxZoom ? " (maximum — data has no finer time resolution)" : ""));
         } else {
             currentGranularity = this._pickAggGranularity(k); opDay = 0.85;
-            this.hintBar.text(`Aggregated temporal view — grouped by ${GRAN_LABELS[currentGranularity]} windows`);
-        }
+this.hintBar.text(`TAF-Graph View · ${GRAN_LABELS[currentGranularity]} windows`);}
 
         const thr = this.btcThreshold || 0;
         const byThr = arcs => thr > 0 ? arcs.filter(a => a.btc >= thr) : arcs;
@@ -649,8 +649,12 @@ const GRAN_LABELS = { day: "24-hour", "6h": "6-hour", "3h": "3-hour", "1h": "1-h
 
         this._syncNodePositions(x);
         
+const showLabels = currentGranularity === "day" || (this._lastK || 1) > 15;
 this.gNode.selectAll(".node-date-label")
-    .style("display", (this._lastK || 1) > 15 ? null : "none");
+    .style("display", showLabels ? null : "none");
+    // 24h view: node labels already show the date, so hide the offset axis labels
+this.gAxis.selectAll(".tick text")
+    .style("display", currentGranularity === "day" ? "none" : null);
         this._drawLegend(activeArcs, currentGranularity);
 
 
@@ -1059,9 +1063,11 @@ return self._arcPath(x1, x2, self._arcHeight(x1, x2, d.key), axisY, d._side || 1
          const M = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 entered.append("text")
     .attr("class", "node-date-label")
-    .attr("y", -(this.NODE_R + 6))
+    .attr("y", granularity === "day" ? this.NODE_R + 15 : -(this.NODE_R + 6))
     .attr("text-anchor", "middle")
-        .attr("font-size", "10px").attr("font-weight", "700").attr("fill", "#78716c")      .text(d => `${d.time.getUTCDate()} ${M[d.time.getUTCMonth()]}`);
+    .attr("font-size", "10px").attr("font-weight", "700").attr("fill", "#57534e")
+    .attr("stroke", "#ffffff").attr("stroke-width", 3).attr("paint-order", "stroke")
+    .text(d => `${d.time.getUTCDate()} ${M[d.time.getUTCMonth()]}`);
     }
     _ensureChainNodes(chainArcs) {
         const existing = new Set();
@@ -1598,7 +1604,8 @@ const scale = granularity === "hour" ? this.hourColorScale : this.dayColorScale;
         </span>`;
         }).join('');
 
-        scaleRow.html(`
+            scaleRow.html(`
+<span style="font-size:9px;color:#555;white-space:nowrap">Edge shade = BTC amount:</span>
         ${swatches}
         <span style="font-size:9px;color:#666;white-space:nowrap"
               title="Colors fit this file's actual range (₿${fmtB(edges[0])}–₿${fmtB(edges[edges.length - 1])}). Log scale keeps small and huge transfers both visible.">

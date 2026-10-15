@@ -62,24 +62,25 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
             .style("position", "relative")
             .html(`
                 <div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center">
-                    <span><b style="color:#265F91">●</b> Blue = aggregated TXs</span>
-                    <span><b style="color:#1B7A70">●</b> Teal = Single address-link flow</span>
-                    <span>Darker = more BTC</span>
-<span><b style="color:#78716c">●</b> Gray node = flow start/end</span><span title="Pink marks the flow you clicked to inspect, regardless of any active address search"><b style="color:#EC4899">●</b> Pink = selected flow</span><span title="A chain flagged by Detect Candidates"><b style="color:#F59E0B">●</b> Amber = peeling candidate</span>          <button id="ef-legend-help-btn" title="Detailed explanation" style="background:none;border:1px solid var(--border);border-radius:4px;width:20px;height:20px;cursor:pointer;color:#555;font-size:11px;flex-shrink:0">ⓘ</button>
+                    <span><b style="color:#265F91">●</b> Blue edge = aggregated flows</span>
+<span><b style="color:#1B7A70">●</b> Teal edge = single TX output</span>
+<span><b style="color:#78716c">●</b> Gray node = point in time</span>
+<span title="Pink marks the flow you clicked to inspect, regardless of any active address search"><b style="color:#EC4899">●</b> Pink = selected flow</span><span title="A chain flagged by Detect Candidates"><b style="color:#F59E0B">●</b> Amber = peeling candidate</span>          <button id="ef-legend-help-btn" title="Detailed explanation" style="background:none;border:1px solid var(--border);border-radius:4px;width:20px;height:20px;cursor:pointer;color:#555;font-size:11px;flex-shrink:0">ⓘ</button>
                 </div>
-                               <div id="ef-legend-help" style="display:none;position:absolute;bottom:100%;right:14px;margin-bottom:6px;width:320px;max-width:calc(100vw - 40px);padding:10px 12px;background:#ffffff;border:1px solid var(--border);border-radius:6px;line-height:1.7;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:20">
-                    <b>Node</b> (gray-brown ring) — a point in time where a flow begins or ends.<br>                    <b>Edge</b> — a BTC flow between two points in time.<br>
-                    <b>Hop</b> — the biggest output of one transaction gets spent again in the next; the smaller output at each step is the "peeled" amount.<br>
-                    <hr style="border:none;border-top:1px solid var(--border-inner);margin:6px 0">
-                    <b>Self-loop</b> — funds returned to the same address they came from.<br>
-                    <b>Dominant transaction</b> — one transaction makes up 70%+ of this flow's volume.<br>
-                    <b>Repeated address</b> — the same input address appears 2 or more times in this flow.<br>
-                    <b>Top 1%</b> — this transaction's amount is in the top 1% across the whole loaded dataset.<br>
-                    <hr style="border:none;border-top:1px solid var(--border-inner);margin:6px 0">
-                    <b>Color brackets</b> — BTC amounts are split into 4 shaded brackets on a log scale, fitted to your current dataset, so both small and large transfers stay visible. The "×N/step" ratio changes with your data and filters.<br>
-                    <b>Selected flow</b> (pink) — the transaction or chain you clicked to inspect.<br>
-                    <b>Peeling candidate</b> (amber) — a chain flagged by Detect Candidates as matching a peeling pattern.<br>
-                    <b>Address search</b> — each searched address is assigned its own color, shown on its tag and on matching flows, so multiple searches stay distinguishable.                </div>
+                <div id="ef-legend-help" style="display:none;position:absolute;bottom:100%;right:14px;margin-bottom:6px;width:320px;max-width:calc(100vw - 40px);max-height:55vh;overflow-y:auto;padding:10px 12px;background:#ffffff;border:1px solid var(--border);border-radius:6px;line-height:1.6;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:20">
+    <b>TAF</b> — Temporal Aggregated Flow (the aggregated view).<br>
+                <b>Node</b> — a point in time (a day or an hour window) where flows begin or end.<br>
+    <b>Edge</b> — BTC moved from one node to a later node. Color = level of detail (blue: aggregated TX flows, teal: single TX output). Shade = amount (darker: more BTC, lighter: less BTC).<br>
+<b>Hop</b> — one link of a chain: an output of one transaction spent as an input of the next. Teal edge = 1 hop; blue edge = all hops aggregated between two time windows.<br>
+ <hr style="border:none;border-top:1px solid var(--border-inner);margin:6px 0">
+    <b>Self-loop</b> — funds returned to the same address they came from.<br>
+    <b>Dominant transaction</b> — one transaction makes up 70%+ of a flow's volume.<br>
+    <b>Repeated address</b> — the same input address appears 2+ times in a flow.<br>
+    <b>Top 1%</b> — the amount is in the top 1% of the whole dataset.<br>
+    <hr style="border:none;border-top:1px solid var(--border-inner);margin:6px 0">
+    <b>Shade brackets</b> — 4 BTC ranges on a log scale, fitted to your data.<br>
+    <b>Address search</b> — each searched address gets its own color on its tag and on matching flows.
+</div>
             `);
 
         let legendHelpOpen = false;
