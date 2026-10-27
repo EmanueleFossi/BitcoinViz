@@ -164,7 +164,7 @@ try {
     };
     saveLastFilterParams(bodyObj);   // NEW — remembers filters for Matrix/ExplorativeFlow
 
-    const response = await fetch("http://localhost:5501/export", {
+    const response = await fetch("./export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(bodyObj)
