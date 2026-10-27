@@ -164,7 +164,7 @@ try {
     };
     saveLastFilterParams(bodyObj);   // NEW — remembers filters for Matrix/ExplorativeFlow
 
-    const response = await fetch("./export", {
+    const response = await fetch("/pchainvas/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(bodyObj)
