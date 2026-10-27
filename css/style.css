@@ -386,6 +386,7 @@ html, body, #app { height: 100%; }
     padding: 0 12px;   /* 🌟 ADD THIS: Creates a safe horizontal safety margin inside the container */
     box-sizing: border-box;
      min-height: 0; 
+     
 }
 
 .viz-toolbar {
@@ -791,3 +792,11 @@ html, body, #app { height: 100%; }
 .fp-coin-lg { width:13px; height:13px; font-size:9px; }
 .fp-coin-sm { width:9px; height:9px; font-size:7px; }
 .ic-flip svg { transform: scaleX(-1); display: inline-block; vertical-align: -3px; }
+
+
+
+ /*                     
+.sidebar, .viz-container { background: #F9FBFE; }
+.sb-footer { background: transparent; }*/
+
+            
