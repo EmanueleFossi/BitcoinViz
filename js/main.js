@@ -146,56 +146,33 @@ async function exportAllDaysCSV() {
     const exportBtn = document.getElementById('export-csv-btn');
     const originalLabel = exportBtn.textContent;
     exportBtn.disabled = true;
-    exportBtn.textContent = "Exporting...";
-try {
-    const params = filterManager.getFilterParams();
-    const bodyObj = {
-        startDate:           params.startDate,
-        endDate:             params.endDate,
-        minSingleOutput:     params.minSingleOutput,
-        maxSingleOutput:     params.maxSingleOutput,
-        minMinOutput:        params.minMinOutput,
-        maxMinOutput:        params.maxMinOutput,
-        minInputs:           params.filterState.minInputs,
-        maxInputs:           params.filterState.maxInputs,
-        minOutputs:          params.filterState.minOutputs,
-        maxOutputs:          params.filterState.maxOutputs,
-        onlySpentInPeriod:   params.onlySpentInPeriod,
-    };
-    saveLastFilterParams(bodyObj);   // NEW — remembers filters for Matrix/ExplorativeFlow
+    exportBtn.textContent = "Loading...";
 
-    const response = await fetch("/pchainvas/export", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(bodyObj)
-    });
-
-        const result = await response.json();
-
-        if (!response.ok || result.error) {
-            alert(`Error exporting: ${result.error}`);
-            return;
-        }
-
-        alert(
-            `Export completed!\n\n` +
-            `File: ${result.file}\n` +
-            `Transactions: ${result.tx_count.toLocaleString('it-IT')}\n` +
-            `Total rows: ${result.rows.toLocaleString('it-IT')}\n\n` +
-            `Saved in: data_cleaned/${result.file}`
-        );
-
-        console.log(`[Export] Saved: data_cleaned/${result.file} — ${result.tx_count} TX, ${result.rows} rows`);
-initExplorativeFlow(); 
+    try {
+        const params = filterManager.getFilterParams();
+        const bodyObj = {
+            startDate:           params.startDate,
+            endDate:             params.endDate,
+            minSingleOutput:     params.minSingleOutput,
+            maxSingleOutput:     params.maxSingleOutput,
+            minMinOutput:        params.minMinOutput,
+            maxMinOutput:        params.maxMinOutput,
+            minInputs:           params.filterState.minInputs,
+            maxInputs:           params.filterState.maxInputs,
+            minOutputs:          params.filterState.minOutputs,
+            maxOutputs:          params.filterState.maxOutputs,
+            onlySpentInPeriod:   params.onlySpentInPeriod,
+        };
+        saveLastFilterParams(bodyObj);   // remembers the filters for the flow chart and after refresh
+        await initExplorativeFlow();     // loads the data from /api/transactions and draws the chart
     } catch (err) {
-        console.error("[Export] Errore:", err);
-        alert(`Errore di connessione al server.\nAssicurati che server.py sia in esecuzione.\n\n${err.message}`);
+        console.error("[Apply] Error:", err);
+        alert(`Error: ${err.message}`);
     } finally {
         exportBtn.disabled = false;
         exportBtn.textContent = originalLabel;
     }
 }
-
 // ─── Header helpers ───────────────────────────────────────
 function updateHeaderBadge(label) {
     const badge = document.getElementById('header-badge');

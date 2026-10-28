@@ -1,17 +1,18 @@
 import os
 import json
 import pandas as pd
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Blueprint
 from flask_cors import CORS
 
 from data_source import get_raw_transactions
 from filters import apply_filters
 
 BASE_DIR   = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-EXPORT_DIR = os.path.join(BASE_DIR, "data_cleaned")
+EXPORT_DIR = os.environ.get("EXPORT_DIR", "/tmp/pchainvas_exports")
 
 app = Flask(__name__, static_folder=BASE_DIR, static_url_path="")
 CORS(app)
+api = Blueprint("api", __name__)
 
 
 @app.route("/")
@@ -39,10 +40,10 @@ def _rows_to_safe_json(df: pd.DataFrame):
 #    no file written, no file re-read. This is the boundary: everything
 #    past this point (ExplorativeFlow, MatrixChart, ClusterManager...)
 #    only ever talks to this one endpoint, never to CSV directly. ──────
-@app.route("/api/transactions", methods=["POST"])
+@api.route("/api/transactions", methods=["POST"])
 def api_transactions():
     params = request.get_json() or {}
-    print(f"\n[API] Filtri ricevuti: {params}")
+    print(f"\n[API] Filters received: {params}")
 
     try:
         raw = get_raw_transactions()
@@ -51,7 +52,7 @@ def api_transactions():
 
     result_df = apply_filters(raw, params)
     if result_df.empty:
-        return jsonify({"error": "Nessuna transazione trovata con i filtri attuali.", "rows": []}), 200
+        return jsonify({"error": "No transactions were found with the current filters.", "rows": []}), 200
 
     return jsonify({
         "ok": True,
@@ -63,10 +64,10 @@ def api_transactions():
 # ── Kept ONLY for the "download filtered CSV" screen. This is a real
 #    user-facing feature (they want an actual file), not internal data
 #    plumbing — so it's fine that this one still writes to disk. ──────
-@app.route("/export", methods=["POST"])
+@api.route("/export", methods=["POST"])
 def export_csv():
     params = request.get_json() or {}
-    print(f"\n[Export] Filtri ricevuti: {params}")
+    print(f"\n[Export] Filters received: {params}")
 
     try:
         raw = get_raw_transactions()
@@ -75,7 +76,7 @@ def export_csv():
 
     result_df = apply_filters(raw, params)
     if result_df.empty:
-        return jsonify({"error": "Nessuna transazione trovata con i filtri attuali."}), 200
+        return jsonify({"error": "No transactions were found with the current filters."}), 200
 
     os.makedirs(EXPORT_DIR, exist_ok=True)
     filename = "bitcoin_filtered.csv"
@@ -94,6 +95,9 @@ def export_csv():
         "rows":     row_count,
     })
 
+
+app.register_blueprint(api, url_prefix="")                                 # local: /api/transactions
+app.register_blueprint(api, url_prefix="/pchainvas", name="api_prefixed")  # server: /pchainvas/api/transactions
 
 if __name__ == "__main__":
     print("=" * 50)
