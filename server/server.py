@@ -8,7 +8,6 @@ from data_source import get_raw_transactions
 from filters import apply_filters
 
 BASE_DIR   = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-EXPORT_DIR = os.environ.get("EXPORT_DIR", "/tmp/pchainvas_exports")
 
 app = Flask(__name__, static_folder=BASE_DIR, static_url_path="")
 CORS(app)
@@ -61,39 +60,8 @@ def api_transactions():
     })
 
 
-# ── Kept ONLY for the "download filtered CSV" screen. This is a real
-#    user-facing feature (they want an actual file), not internal data
-#    plumbing — so it's fine that this one still writes to disk. ──────
-@api.route("/export", methods=["POST"])
-def export_csv():
-    params = request.get_json() or {}
-    print(f"\n[Export] Filters received: {params}")
 
-    try:
-        raw = get_raw_transactions()
-    except FileNotFoundError as e:
-        return jsonify({"error": str(e)}), 404
 
-    result_df = apply_filters(raw, params)
-    if result_df.empty:
-        return jsonify({"error": "No transactions were found with the current filters."}), 200
-
-    os.makedirs(EXPORT_DIR, exist_ok=True)
-    filename = "bitcoin_filtered.csv"
-    filepath = os.path.join(EXPORT_DIR, filename)
-    result_df.to_csv(filepath, index=False)
-
-    tx_count  = result_df["transaction_hash"].nunique()
-    row_count = len(result_df)
-    print(f"[Export] Salvato: {filepath} — {tx_count} transazioni, {row_count} righe")
-
-    return jsonify({
-        "ok":       True,
-        "file":     filename,
-        "path":     filepath,
-        "tx_count": int(tx_count),
-        "rows":     row_count,
-    })
 
 
 app.register_blueprint(api, url_prefix="")                                 # local: /api/transactions
