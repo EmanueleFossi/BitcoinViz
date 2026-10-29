@@ -17,6 +17,7 @@ d3.select(".ef-peel-panel").remove();
     d3.select(".ef-spark-panel").remove();
      d3.select("#filter-controls-container").selectAll("*").remove();
     d3.selectAll(".ef-tooltip").remove();
+        d3.selectAll(".ef-pinned-tip").remove();
     d3.select("#ef-legend-footer").remove();
 
     const applyBtn = document.getElementById('apply-filters-btn');
@@ -64,9 +65,9 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
             .style("position", "relative")
                     .html(`
               <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;white-space:nowrap">
-    <span title="Several flows merged into one edge"><b style="color:#265F91">●</b> Merged flows</span>
-    <span title="One transaction output (1-hour view)"><b style="color:#2F9E44">●</b> Single transaction</span>
-    <span title="The chain or edge you clicked"><b style="color:#EC4899">●</b> Selected</span>
+    <span title="Several flows merged into one edge"><b style="color:#265F91">●</b> Merged txns flows</span>
+    <span title="One transaction output (1-hour view)"><b style="color:#2F9E44">●</b> Single txn output</span>
+    <span title="The chain or edge you clicked"><b style="color:#EC4899">●</b> Selected flow </span>
     <span title="Matches the system's peeling-chain rules"><b style="color:#F59E0B">●</b> Suspicious chain</span>
     <span id="ef-amount-slot" style="display:inline-flex;align-items:center;gap:6px;padding-left:16px;border-left:1px solid #ddd"></span>
     <button id="ef-legend-help-btn" title="How to read this view" style="margin-left:auto;background:#fff;border:1px solid var(--border);border-radius:4px;height:20px;padding:0 8px;cursor:pointer;color:#555;font-size:10px;flex-shrink:0;white-space:nowrap">ⓘ Help</button>
@@ -83,9 +84,9 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
     <details open>
         <summary>1 · The basics</summary>
         <ul>
-            <li>Each <b>dot</b> is a time window. Time runs left to right. All times are UTC.</li>
-            <li>Each <b>arc</b> is BTC that moved from one window to a later one.</li>
-            <li><b style="color:#2F9E44">Green</b> arc = one transaction output (1-hour windows). <b style="color:#265F91">Blue</b> arc = several flows merged (larger windows).</li>
+<li>Each <b>node</b> is a time window (day, 12 h, 6 h or 1 h). Time runs left to right. All times are UTC.</li>
+<li>Each <b>edge</b> is BTC that moved from one window to a later one.</li>
+<li><b style="color:#2F9E44">Green</b> edge = one output that was later spent (1-hour windows). <b style="color:#265F91">Blue</b> edge = several such outputs merged (larger windows).</li>
             <li>A <b>hop</b> is one link of a chain: an output spent as an input of the next transaction.</li>
         </ul>
     </details>
@@ -93,31 +94,30 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
     <details>
         <summary>2 · Move around</summary>
         <ul>
-            <li><b>Scroll</b> up or down to open or close all windows one step (day, 12 h, 6 h, 1 h).</li>
-            <li><b>Click a dot</b> to open only that window. <b>Click a box label</b> to close it. <b>Drag</b> to pan.</li>
-            <li>The <b>day strip</b> on top: drag to jump. "Collapse all" goes back to days.</li>
-            <li><b>Long edges</b>: hide arcs that span more than N windows to reduce clutter.</li>
+            <li><b>Scroll</b>  to open or close all windows one step (day, 12 h, 6 h, 1 h).</li>
+            <li><b>Click a node</b> to open only that window. <b>Click a box label</b> to close it. <b>Drag</b> to pan.</li>
+<li>The <b>timeline overview</b> on top shows every day. Drag its orange box to move along the timeline. "Collapse all" goes back to days.</li>
+            <li><b>Long edges</b>: hide edges that span more than N windows to reduce clutter.</li>
         </ul>
     </details>
 
     <details>
         <summary>3 · Inspect an edge</summary>
         <ul>
-            <li><b>Hover</b> an arc: amount, time, transaction, main output and how long it waited before being spent.</li>
-            <li><b>Click a green arc</b>: its whole chain turns <b style="color:#EC4899">pink</b>. Click empty space to step back.</li>
-            <li><b>Click a blue arc</b>: it turns pink. Press <b>Details</b> in the left panel for the merged transactions.</li>
-            <li><b>Click an hour dot</b> (or Shift+click any dot) to focus on its arcs only. Esc exits.</li>
+            <li><b>Hover</b> an edge: amount, time, transaction, main output and how long it waited before being spent.</li>
+            <li><b>Click a green edge</b>: its whole chain turns <b style="color:#EC4899">pink</b>. Click empty space to step back.</li>
+            <li><b>Click a blue edge</b>: it turns pink. Press <b>Details</b> in the left panel for the merged transactions.</li>
+            <li><b>Click an hour node</b> (or Shift+click any node) to focus on its edges only. Esc exits.</li>
         </ul>
     </details>
 
     <details>
         <summary>4 · Suspicious chains</summary>
         <ul>
-            <li>Set <b>Retain %</b> (each hop keeps at least this share of the amount), <b>Min hops</b>, then press Detect. The Temporal gap and Min flow filters apply too.</li>
             <li>The longest chains are marked <b style="color:#F59E0B">amber</b>, <b>#1 = longest</b>. Use ◀ ▶ or click a start edge to open a chain. ✕ clears. <b>View all</b> lists every chain.</li>
-            <li>In an open chain: <b>dashed ring</b> on a dot = hops inside one hour (no arc; hover the dot for their amounts).</li>
+            <li>In an open chain: <b>dashed ring</b> on a node = hops inside one hour (no arc; hover the dot for their amounts).</li>
             <li><b>Amount per hop → Show</b>: one dot per hop. Hover to read, click or ◀ ▶ to step; the current hop is thicker on the graph.</li>
-            <li>The day strip shows amber ticks where the shown chains live.</li>
+<li>The timeline overview shows an <b style="color:#F59E0B">amber underline</b> on the days where the shown chains start. For an open chain, it marks every day the chain passes through.</li>
             <li>Suspicious means "matches the system's peeling rules". It is a lead to check, not proof.</li>
         </ul>
     </details>
@@ -125,10 +125,9 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
     <details>
         <summary>5 · Amounts, flags, search, filters</summary>
         <ul>
-            <li><b>Shade</b> = BTC on all arcs (4 brackets, log scale). <b>Thickness</b> = BTC inside an open chain only.</li>
+<li><b>Shade</b> = BTC of an edge: darker = more BTC, in 4 ranges on a log scale (each range is about 6× wider than the one before). The legend at the bottom lists each range. <b>Thickness</b> is used only while a chain is open: the thinnest edge has less BTC, the thickest has more BTC.</li>
             <li>Flags on merged edges: <b>self-loop</b> (money returns to the same address), <b>dominant</b> (one transaction is 70%+), <b>repeated address</b>, <b>top 1%</b> amount.</li>
             <li><b>Search</b> an address (top): it gets its own colour on matching flows.</li>
-            <li><b>Left filters</b>: Temporal gap, Minimum single flow, Minimum merged-edge volume (blue arcs only).</li>
         </ul>
     </details>
 </div>
@@ -154,8 +153,9 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
         buildExplorativeSidebar(chart);
         window._efChart = chart;
 
+   
         if (focusAddress) {
-            const q = focusAddress.toLowerCase();
+                                    const q = focusAddress.toLowerCase();
             chart.applyFilters({
                 queries: [q],
                 excludes: [],
@@ -177,9 +177,9 @@ hlColorMap: new Map([[q, FP_HL_COLORS[0]]]),
                     .style("font-size", "11px")
                     .style("border-radius", "6px")
                     .style("margin", "10px")
-                    .html(` ⚠ No address-linked chain found for this address.<br>
+                    .html(` ⚠ No edge found for this address.<br>
 <span style="color:#f87171;font-size:10px;line-height:1.6">
-It may appear only in chains that use a new address at every hop, which cannot be traced by address reuse.
+It has no spent output that can be linked inside the loaded data. Possible reasons: it never spent money here, the transaction that sent it money is not loaded, or it received and spent within the same hour (no edge is drawn within one hour).
 </span>`);
             }
         }

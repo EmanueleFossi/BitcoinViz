@@ -110,8 +110,11 @@ this.container.selectAll("svg, .ef-hint, .ef-reset, .ef-focus, .ef-long, .ef-top
                 window.removeEventListener('keydown', this._onKey);
                 return;
             }
-            if (e.key === 'Escape' && this._focusKey) this._clearFocus();
-        };
+            if (e.key === 'Escape') { this._unpinTip(); if (this._focusKey) this._clearFocus(); }
+            const tg = (e.target && e.target.tagName) || '';
+            if (/INPUT|TEXTAREA|SELECT/.test(tg) || e.ctrlKey || e.metaKey || e.altKey) return;
+            if (e.key.toLowerCase() === 'p') this._pinTip();
+                };
         window.addEventListener('keydown', this._onKey);    }
 
     get _axisY() { return Math.round((this.margin.top + this.svgH) / 2); }
@@ -241,12 +244,26 @@ this.container.selectAll("svg, .ef-hint, .ef-reset, .ef-focus, .ef-long, .ef-top
             tx.in_addresses.forEach(inAddr => {
                 const candidates = outputsByAddress.get(inAddr);
                 if (!candidates) return;
-                const valid = candidates.filter(o =>
-                    o.time <= tx.time && o.hash !== tx.hash &&
+let valid = candidates.filter(o =>
+                        o.time <= tx.time && o.hash !== tx.hash &&
                     !spentOutputs.has(`${inAddr}_${o.hash}`)
                 );
+// One input: the output it spends must have exactly the amount that goes in.
+                let bridged = false;
+                if (tx.tx_inputs === 1 && tx.btc_in > 0) {
+                    const tol = Math.max(1e-6, tx.btc_in * 1e-6);
+                    const exact = valid.filter(o => Math.abs(o.btc - tx.btc_in) <= tol);
+                    if (exact.length) valid = exact;
+                    else {
+                        // No exact match: a small transaction in between may not be in the loaded data.
+                        // Accept the latest earlier output on this address that is bigger, but by at most 10%.
+                        const near = valid.filter(o => o.btc > tx.btc_in && tx.btc_in >= o.btc * 0.9);
+                        near.sort((a, b) => b.time - a.time);
+                        valid = near.length ? [near[0]] : [];
+                        bridged = near.length > 0;
+                    }
+                }
                 if (!valid.length) return;
-
                 let origin, uncertain;
                 if (tx.tx_inputs === 1 && valid.length > 1) {
                     // single-input tx: total_input_value_BTC IS this deposit's amount
@@ -261,7 +278,7 @@ this.container.selectAll("svg, .ef-hint, .ef-reset, .ef-focus, .ef-long, .ef-top
                 }
 
                 spentOutputs.add(`${inAddr}_${origin.hash}`);
-                this.linkMap.set(`${tx.hash}|${inAddr}`, { ...origin, uncertain });
+this.linkMap.set(`${tx.hash}|${inAddr}`, { ...origin, uncertain, bridged, gapBtc: bridged ? origin.btc - tx.btc_in : 0 });
 
                 // A single origin tx can have several outputs spent later. Keep the branch
                 // with the LARGEST spent output ("biggest output continues the chain").
@@ -333,8 +350,7 @@ this.container.selectAll("svg, .ef-hint, .ef-reset, .ef-focus, .ef-long, .ef-top
                 if (originBucket.key === spendBucket.key) return;
 
                 const arcKey = `${origin.hash}|${tx.hash}|${inAddr}`;
-                const changeOutput = tx.outputs.find(o => o.addr === inAddr);
-                const volumeBtc = changeOutput ? changeOutput.btc : origin.btc;
+               const volumeBtc = origin.btc;
                 const hops = this.txHopMap.get(origin.hash) || 0;
                 const root = this.chainRootMap.get(origin.hash) || origin.hash;
                 const chainLen = (this.txChainMap.get(root) || []).length;
@@ -347,8 +363,7 @@ this.container.selectAll("svg, .ef-hint, .ef-reset, .ef-focus, .ef-long, .ef-top
                         time_from: originBucket.centerTime, time_to: spendBucket.centerTime,
                         btc: volumeBtc, count: 1, hops, chainLen,
                         chainRoot: root, hashFrom: origin.hash, hashTo: tx.hash,
-                        inAddr: inAddr, uncertain: origin.uncertain,
-                        isAggregated: false, isSingle: true,
+inAddr: inAddr, uncertain: origin.uncertain, bridged: !!origin.bridged, gapBtc: origin.gapBtc || 0,                        isAggregated: false, isSingle: true,
                         addresses: [entry]
                     });
                 } else {
@@ -1115,7 +1130,8 @@ const NAMES = { day: '24-hour', '12h': '12-hour', '6h': '6-hour', hour: '1-hour'
                 g.span = Math.abs(b.bx - a.bx);
                 g.zone = (a.sixKey && a.sixKey === b.sixKey) ? 0
                        : (a.twKey && a.twKey === b.twKey) ? 1
-                       : (a.dayKey === b.dayKey ? 2 : 3);   // 6h box, 12h box, day box, everything else                g.edges.sort((x, y) => x.btc - y.btc || (x.key < y.key ? -1 : 1)); // biggest = outermost
+                       : (a.dayKey === b.dayKey ? 2 : 3);   // 6h box, 12h box, day box, everything else              
+                         g.edges.sort((x, y) => x.btc - y.btc || (x.key < y.key ? -1 : 1)); // biggest = outermost
                 const n = g.edges.length;
                 g.step = Math.max(1.5, Math.min(FOCUS ? 8 : ROOMY ? 6 : 4, 0.35 * maxH / n));                                g.thick = (n - 1) * g.step;
             });
@@ -1734,7 +1750,8 @@ const MIN_LABEL = { day: 34, '12h': 32, '6h': 30, hour: 26 };
         // Thickness = BTC, linear over THIS set of edges: smallest = 1.5px, largest = 9px
 let lo = 0, hi = 0, widthOf = () => (ov.kind === 'suspects' ? 2.5 : 3.5);
 if (ov.kind !== 'single' && ov.kind !== 'suspects' && ov.arcs.length > 1) {
-                const vals = ov.arcs.map(a => a.btc);
+const allHops = (ov.kind === 'chain' || ov.kind === 'peel') ? this._hopsForSpark() : null;
+const vals = allHops && allHops.length > 1 ? allHops.map(h => h.btc) : ov.arcs.map(a => a.btc);
             lo = Math.min(...vals); hi = Math.max(...vals);
             if (hi > lo) {
                 const ws = d3.scaleLinear().domain([lo, hi]).range([1.5, 9]);
@@ -1814,16 +1831,24 @@ const badgeData = ov.kind === 'suspects' && this._suspectByKey && (this._suspect
         const bm = benter.merge(bsel);
 const hopsOf = d => { const s = self._suspectByKey.get(d.key); return `#${s.idx + 1} · ${s.cand.length} hops`; };
 // keep neighbouring badges from covering each other: push a badge down when it would overlap another
-        const placed = [];
+               const placed = [];
+        const BOX_TOP = this._axisY - 50 - 14;   // just above the day box
+        const BOX_BOT = this._axisY + 46 + 14;   // just below the day box
         badgeData.slice().sort((a, b) => a._apex[0] - b._apex[0]).forEach(d => {
             const w = 10 + 6 * hopsOf(d).length;
-            let y = d._apex[1], again = true, guard = 0;
+            const up = (d._side || 1) === 1;
+            let y = up ? Math.min(d._apex[1] - 10, BOX_TOP)
+                       : Math.max(d._apex[1] + 10, BOX_BOT);
+            let again = true, guard = 0;
             while (again && guard++ < 12) {
                 again = false;
                 placed.forEach(p => {
-                    if (Math.abs(p.x - d._apex[0]) < (p.w + w) / 2 + 3 && Math.abs(p.y - y) < 16) { y = p.y + 16; again = true; }
+                    if (Math.abs(p.x - d._apex[0]) < (p.w + w) / 2 + 3 && Math.abs(p.y - y) < 16) {
+                        y = up ? p.y - 16 : p.y + 16; again = true;
+                    }
                 });
             }
+            y = Math.max(this.margin.top + 8, Math.min(this.svgH - 10, y));
             d._by = y;
             placed.push({ x: d._apex[0], y, w });
         });
@@ -1888,18 +1913,19 @@ const hopsOf = d => { const s = self._suspectByKey.get(d.key); return `#${s.idx 
             return;
         }
 
-        // otherwise: shade explains the amounts
+        // otherwise: shade explains the amounts (each colour with its own range)
+        const fmtR = v => v >= 100 ? Math.round(v).toLocaleString('en-US') : fmtB(v);
         const swatches = blue.map((c, i) => {
             const lo = bEdges[i], hi = bEdges[i + 1];
             const bg = (hasAgg && hasSingle) ? `linear-gradient(135deg, ${c} 50%, ${teal[i]} 50%)`
                 : (hasSingle ? teal[i] : c);
-            const title = `${fmtB(lo)} to ${i === blue.length - 1 ? '∞' : fmtB(hi)} BTC`;
-            return `<span title="${title}" style="display:inline-block;width:12px;height:10px;border-radius:2px;background:${bg}"></span>`;
+            const label = i === blue.length - 1 ? `>${fmtR(lo)}` : `${fmtR(lo)}–${fmtR(hi)}`;
+            return `<span title="${fmtR(lo)} to ${i === blue.length - 1 ? '∞' : fmtR(hi)} BTC" style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap"><span style="width:10px;height:10px;border-radius:2px;background:${bg};display:inline-block"></span>${label}</span>`;
         }).join('');
         slot.html(`
             <b style="color:#555">Shade = BTC</b>
-            <span style="display:inline-flex;gap:2px">${swatches}</span>
-            <span style="color:#999" title="Log scale, fitted to this file's range">${fmtB(bEdges[0])} → ${fmtB(bEdges[bEdges.length - 1])} ₿</span>`);
+            <span style="display:inline-flex;gap:10px;flex-wrap:wrap">${swatches}</span>
+            <span style="color:#999">₿ · log scale</span>`);
     }
     // ════════════════════════════════════════════════════════════════
     //  EXPAND / COLLAPSE / SELECTION
@@ -2057,8 +2083,9 @@ if (!ov.keepView) this._centerOnArc(ov.focusArc || ov.arcs[0]);
         }).sort((a, b) => chainIdx.get(a.hashFrom) - chainIdx.get(b.hashFrom));
 
         // If the clicked flow is a side branch that is not part of the main chain, show it alone.
-        const arcs = chainArcs.length ? chainArcs : [arc];
-        this._activeChainArcs = arcs;
+const onMain = chainArcs.some(a => a.key === arc.key);   // is the clicked edge really part of the main chain?
+const arcs = onMain ? chainArcs : [arc];                 // a side branch is shown alone
+         this._activeChainArcs = arcs;
         this._chainTrueTotal = chain.length;
 
         // every link of the chain (for "Amount per hop") and the ones with no arc (inside one hour)
@@ -2066,10 +2093,9 @@ if (!ov.keepView) this._centerOnArc(ov.focusArc || ov.arcs[0]);
         for (let i = 0; i < chain.length - 1; i++) {
             const nx = this.nextHopMap.get(chain[i]);
             if (nx && nx.spendHash === chain[i + 1])
-                chainHops.push({ hashFrom: chain[i], hashTo: chain[i + 1], btc: nx.btc, addr: nx.addr });
-        }
-        this._chainHops = chainArcs.length ? chainHops : [];
-        this._hiddenHops = chainArcs.length
+chainHops.push({ n: chainHops.length + 1, hashFrom: chain[i], hashTo: chain[i + 1], btc: nx.btc, addr: nx.addr });        }
+this._chainHops = onMain ? chainHops : [];
+        this._hiddenHops = onMain
             ? chainHops.filter(h => !this.hourArcByKey.has(`${h.hashFrom}|${h.hashTo}|${h.addr}`)) : [];
         this._overlayHidden = this._hiddenHops.length;
 
@@ -2142,8 +2168,9 @@ if (!ov.keepView) this._centerOnArc(ov.focusArc || ov.arcs[0]);
         this._sparklineHops = c.arcs;
         this._sparklineIdx = 0;
         this._chainTrueTotal = c.arcs.length;
-        this._hiddenHops = c.arcs.filter(h => !this.hourArcByKey.has(`${h.hashFrom}|${h.hashTo}|${h.addr}`));
-        this._overlayHidden = this._hiddenHops.length;
+this._hiddenHops = c.arcs.map((h, i) => ({ ...h, n: i + 1 }))
+    .filter(h => !this.hourArcByKey.has(`${h.hashFrom}|${h.hashTo}|${h.addr}`));
+            this._overlayHidden = this._hiddenHops.length;
         this._activeChainArcs = s.runArcs;
         this.selectedArc = s.startArc;
         this._setOverlay({ kind: 'peel', color: '#F59E0B', arcs: s.runArcs });
@@ -2236,8 +2263,8 @@ if (!ov.keepView) this._centerOnArc(ov.focusArc || ov.arcs[0]);
     _sameHourHtml(n) {
         if (!n._same || !n._same.length) return '';
         const f = v => v >= 100 ? v.toFixed(1) : v.toFixed(3);
-        const list = n._same.slice(0, 8).map(h => f(h.btc)).join(' → ');
-        return `<div style="font-size:10px;color:#92610a;margin-top:4px">${n._same.length} hop${n._same.length === 1 ? '' : 's'} of the highlighted chain inside this window (not drawn):<br>₿ ${list}${n._same.length > 8 ? ' …' : ''}</div>`;
+const list = n._same.slice(0, 8).map(h => `hop ${h.n}: ₿ ${f(h.btc)}`).join('<br>');
+return `<div style="font-size:10px;color:#92610a;margin-top:4px">${n._same.length} hop${n._same.length === 1 ? '' : 's'} received and spent inside this window (no edge):<br>${list}${n._same.length > 8 ? '<br>…' : ''}</div>`;
     }
 
     // ── "Amounts per hop": the sparkline, only on request ──
@@ -2385,16 +2412,27 @@ if (!ov.keepView) this._centerOnArc(ov.focusArc || ov.arcs[0]);
           .on("click", function (event) { self._goHop(idxAt(d3.pointer(event, this)[0])); });
         if (innerW > viewW + 1) wrap.node().scrollLeft = Math.max(0, x(cur) - viewW / 2);
 
-        // selected hop: amount · time · arc / same hour
-        const h = hops[cur];
-        const tx = this.txMap.get(h.hashFrom);
+                    const h = hops[cur];
+        const txF = this.txMap.get(h.hashFrom), txT = this.txMap.get(h.hashTo);
         const drawn = this.hourArcByKey.has(`${h.hashFrom}|${h.hashTo}|${h.addr}`);
-        const line = box.append("div").style("display", "flex").style("align-items", "baseline")
-            .style("gap", "8px").style("margin-top", "6px").style("white-space", "nowrap").style("overflow", "hidden");
-        line.append("span").style("font-size", "12px").style("font-weight", "700").style("color", col)
-            .text(`₿ ${h.btc.toFixed(4)}`);
-        line.append("span").style("font-size", "10px").style("color", "#777")
-            .text(`${tx ? d3.utcFormat("%d %b %H:%M UTC")(tx.time) : ''} · ${drawn ? "arc" : "same hour"}`);
+        const fT = d3.utcFormat("%d %b %H:%M");
+        const line = box.append("div").style("margin-top", "10px").style("padding-top", "8px")
+            .style("border-top", "1px solid rgba(0,0,0,0.08)");
+        line.append("div").style("font-size", "14px").style("font-weight", "700").style("color", col)
+            .style("margin-bottom", "6px").text(`₿ ${h.btc.toFixed(4)}`);
+        const kv = (k, v) => {
+            const r = line.append("div").style("display", "flex").style("gap", "8px")
+                .style("font-size", "11px").style("margin-top", "3px");
+            r.append("span").style("flex", "0 0 62px").style("color", "#888").text(k);
+            r.append("span").style("color", "#333").style("font-weight", "600").text(v);
+        };
+        if (txF && txT) {
+            kv("Received", `${fT(txF.time)} UTC`);
+            kv("Spent", `${fT(txT.time)} UTC`);
+            if (!drawn) line.append("div").style("font-size", "10px").style("color", "#92610a")
+                .style("margin-top", "5px").text("Not drawn: received and spent in the same hour.");
+        }
+    
     }
     _openMergedDetails() {
         const arc = this._overlay && this._overlay.kind === 'single' ? this._overlay.arcs[0] : null;
@@ -2437,7 +2475,7 @@ if (!ov.keepView) this._centerOnArc(ov.focusArc || ov.arcs[0]);
         this._activeChainArcs = [arc];
         this._setOverlay({ kind: 'single', color, arcs: [arc] });
     }
-
+        
     _centerOnArc(arc) {
         if (!arc || !this.zoom) return;
         const [f] = this._arcEnds(arc);
@@ -2445,7 +2483,47 @@ if (!ov.keepView) this._centerOnArc(ov.focusArc || ov.arcs[0]);
         this.svgEl.transition().duration(500)
             .call(this.zoom.translateTo, f.bx, this._axisY);
     }
+    // Press P while hovering: keeps a selectable copy of the tooltip on screen.
+    _pinTip() {
+        if (!this.tip || +this.tip.style("opacity") < 0.5) { this._unpinTip(); return; }
+        const node = this.tip.node();
+        const r = node.getBoundingClientRect();
+        this._unpinTip();
+        const pin = d3.select(document.body).append("div")
+            .attr("class", "ef-pinned-tip")
+            .style("position", "fixed")
+            .style("left", Math.min(r.left, window.innerWidth - 380) + "px")
+            .style("top", r.top + "px")
+            .style("max-width", "360px")
+            .style("background", "#ffffff").style("padding", "10px 14px")
+            .style("border", "1px solid #EC4899").style("border-radius", "6px")
+            .style("box-shadow", "0 4px 14px rgba(0,0,0,0.18)")
+            .style("color", "#1a1a1a").style("font-size", "11px")
+            .style("z-index", "1001")
+            .style("pointer-events", "auto").style("user-select", "text")
+            .style("cursor", "text");
+        pin.html(node.innerHTML);
+        pin.selectAll(".ef-pin-hint, .ef-copied").remove();
+        // show full values (hashes, addresses) instead of the shortened ones
+        pin.selectAll("[data-full]").each(function () {
+            this.textContent = this.getAttribute("data-full");
+            this.style.wordBreak = "break-all";
+        });
+        pin.insert("div", ":first-child")
+            .style("display", "flex").style("justify-content", "space-between")
+            .style("align-items", "center").style("margin-bottom", "4px")
+            .style("font-size", "9px").style("color", "#888")
+            .html(`<span>Pinned · select text and copy · Esc to close</span>`)
+            .append("button").text("✕")
+            .style("background", "none").style("border", "none").style("cursor", "pointer")
+            .style("font-size", "13px").style("color", "#555")
+            .on("click", () => this._unpinTip());
+        this.tip.style("opacity", 0);
+    }
 
+    _unpinTip() {
+        d3.selectAll(".ef-pinned-tip").remove();
+    }
     // ════════════════════════════════════════════════════════════════
     //  TOOLTIPS
     // ════════════════════════════════════════════════════════════════
@@ -2487,20 +2565,21 @@ if (!ov.keepView) this._centerOnArc(ov.focusArc || ov.arcs[0]);
             <div style="font-size:9px;color:#888">Click to select · "Details" in the left panel lists the flows</div>`;
     }
     _chainLabel(d, pos) {
-        if (this._overlay && this._overlay.kind === 'peel' && this._sparklineHops) {
-            const i = this._sparklineHops.findIndex(h => h.hashFrom === d.hashFrom && h.hashTo === d.hashTo);
-            if (i >= 0) return `suspicious hop ${i + 1} of ${this._sparklineHops.length}`;
+        const hops = this._hopsForSpark();
+        if (hops) {
+            const i = hops.findIndex(h => h.hashFrom === d.hashFrom && h.hashTo === d.hashTo);
+            if (i >= 0) return `${this._overlay.kind === 'peel' ? 'suspicious hop' : 'hop'} ${i + 1} of ${hops.length}`;
         }
         return `TX ${pos} of ${d.chainLen}`;
     }
-    _tooltipHour(d) {
+        _tooltipHour(d) {
         const hlColor = this._getArcHlColor(d);
 if (this._overlay && this._overlay.kind === 'suspects') return this._tooltipSuspect(d);
         const accent = hlColor || (this._overlay && this._overlay.kind === 'peel' ? '#F59E0B' : '#EC4899');
         const tx = this.txMap ? this.txMap.get(d.hashFrom) : null;
         const timeStr = tx ? d3.utcFormat("%d %b %Y, %H:%M:%S UTC")(tx.time) : '—';
         const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
-        const outAddr = maxOut ? maxOut.addr : (d.addresses[0] ? d.addresses[0].addr : '—');
+const outAddr = d.inAddr || (d.addresses[0] ? d.addresses[0].addr : '—');
         const sh = s => s && s.length > 22 ? s.slice(0, 10) + '…' + s.slice(-8) : s;
         const pos = d.chainLen - d.hops;
 
@@ -2509,19 +2588,22 @@ if (this._overlay && this._overlay.kind === 'suspects') return this._tooltipSusp
         const gapStr = gapH == null ? null
             : gapH < 1 ? `${Math.round(gapH * 60)} min`
             : gapH < 48 ? `${gapH.toFixed(1)} h` : `${(gapH / 24).toFixed(1)} days`;
-
-        const lbl = t => `<span style="color:#888;display:inline-block;width:62px">${t}</span>`;
+        const row = (t, v, mono) => `<div style="display:flex;gap:8px;margin-bottom:3px;font-size:10px;color:#333">
+            <span style="flex:0 0 76px;color:#888;user-select:none">${t}</span>
+            <span style="flex:1;min-width:0;word-break:break-all;${mono ? 'font-family:monospace;' : ''}">${v}</span></div>`;
         const hid = (this._overlay && this._overlayHidden > 0)
-            ? `<div style="font-size:9px;color:#92610a;margin-top:4px">${this._overlayHidden} hop${this._overlayHidden === 1 ? '' : 's'} of this ${this._overlay.kind === 'peel' ? 'suspicious run' : 'chain'} happen inside one hour (not drawn) </div>` : '';
+            ? `<div style="font-size:9px;color:#92610a;margin-top:5px">${this._overlayHidden} hop${this._overlayHidden === 1 ? '' : 's'} of this ${this._overlay.kind === 'peel' ? 'suspicious run' : 'chain'} happen inside one hour (not drawn)</div>` : '';
         return `
-            <div style="font-weight:700;font-size:13px;color:${accent};margin-bottom:5px">₿ ${d.btc.toFixed(4)}</div>
-            <div style="font-size:10px;color:#333;margin-bottom:2px">${lbl('Time')}${timeStr}</div>
-            <div style="font-family:monospace;font-size:10px;color:#333;margin-bottom:2px">${lbl('TX')}${sh(d.hashFrom)}</div>
-            <div style="font-family:monospace;font-size:10px;color:#333;margin-bottom:2px">${lbl('Main out')}${sh(outAddr)}</div>
-            ${gapStr ? `<div style="font-size:10px;color:#333;margin-bottom:2px">${lbl('Spent after')}${gapStr}</div>` : ''}
-<div style="font-size:10px;color:#333">${lbl('Chain')}${this._chainLabel(d, pos)}</div>
-            ${hid}`;
-    }
+            <div style="font-weight:700;font-size:13px;color:${accent};margin-bottom:6px">₿ ${d.btc.toFixed(4)}</div>
+            ${row('Time', timeStr)}
+            ${row('TX hash', `<span data-full="${d.hashFrom}">${sh(d.hashFrom)}</span>`, true)}
+            ${row('Spent address', `<span data-full="${outAddr}">${sh(outAddr)}</span>`, true)}
+            ${gapStr ? row('Spent after', gapStr) : ''}
+            ${row('Chain', this._chainLabel(d, pos))}
+            ${d.bridged ? `<div style="font-size:9px;color:#92610a;margin-top:5px">≈ ₿ ${d.gapBtc.toFixed(4)} left through a transaction that is not in the loaded data</div>` : ''}
+            ${hid}
+            <div class="ef-pin-hint" style="font-size:9px;color:#888;margin-top:5px">Press <b>P</b> to pin this box, then select and copy text</div>`;
+            }        
     _buildTooltip() {
         this.tip = d3.select("body").append("div")
             .attr("class", "ef-tooltip")
