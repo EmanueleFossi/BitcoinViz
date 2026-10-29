@@ -256,8 +256,8 @@ let valid = candidates.filter(o =>
                     if (exact.length) valid = exact;
                     else {
                         // No exact match: a small transaction in between may not be in the loaded data.
-                        // Accept the latest earlier output on this address that is bigger, but by at most 10%.
-                        const near = valid.filter(o => o.btc > tx.btc_in && tx.btc_in >= o.btc * 0.9);
+                        // Accept the latest earlier output on this address that is bigger, but by at most 2%.
+const near = valid.filter(o => o.btc > tx.btc_in && tx.btc_in >= o.btc * 0.98);
                         near.sort((a, b) => b.time - a.time);
                         valid = near.length ? [near[0]] : [];
                         bridged = near.length > 0;
@@ -2600,7 +2600,6 @@ const outAddr = d.inAddr || (d.addresses[0] ? d.addresses[0].addr : '—');
             ${row('Spent address', `<span data-full="${outAddr}">${sh(outAddr)}</span>`, true)}
             ${gapStr ? row('Spent after', gapStr) : ''}
             ${row('Chain', this._chainLabel(d, pos))}
-            ${d.bridged ? `<div style="font-size:9px;color:#92610a;margin-top:5px">≈ ₿ ${d.gapBtc.toFixed(4)} left through a transaction that is not in the loaded data</div>` : ''}
             ${hid}
             <div class="ef-pin-hint" style="font-size:9px;color:#888;margin-top:5px">Press <b>P</b> to pin this box, then select and copy text</div>`;
             }        
