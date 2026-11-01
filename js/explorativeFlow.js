@@ -66,7 +66,7 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
                     .html(`
               <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;white-space:nowrap">
     <span title="Several flows merged into one edge"><b style="color:#265F91">●</b> Merged txns flows</span>
-    <span title="One transaction output (1-hour view)"><b style="color:#2F9E44">●</b> Single txn output</span>
+    <span title="A merged edge that contains just one flow (shade still shows the BTC)"><svg width="18" height="8" style="vertical-align:middle"><line x1="0" y1="4" x2="18" y2="4" stroke="#265F91" stroke-width="2" stroke-dasharray="4,2.5"/></svg> Merged, 1 flow</span>    <span title="One transaction output (1-hour view)"><b style="color:#2F9E44">●</b> Single txn output</span>
     <span title="The chain or edge you clicked"><b style="color:#EC4899">●</b> Selected flow </span>
     <span title="Matches the system's peeling-chain rules"><b style="color:#F59E0B">●</b> Suspicious chain</span>
     <span id="ef-amount-slot" style="display:inline-flex;align-items:center;gap:6px;padding-left:16px;border-left:1px solid #ddd"></span>
@@ -86,7 +86,7 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
         <ul>
 <li>Each <b>node</b> is a time window (day, 12 h, 6 h or 1 h). Time runs left to right. All times are UTC.</li>
 <li>Each <b>edge</b> is BTC that moved from one window to a later one.</li>
-<li><b style="color:#2F9E44">Green</b> edge = one output that was later spent (1-hour windows). <b style="color:#265F91">Blue</b> edge = several such outputs merged (larger windows).</li>
+<li><b style="color:#2F9E44">Green</b> edge = one output that was later spent (1-hour windows). <b style="color:#265F91">Blue</b> edge = several such outputs merged (larger windows). A <b>dashed</b> blue edge is a merged edge that holds only one flow.</li>
             <li>A <b>hop</b> is one link of a chain: an output spent as an input of the next transaction.</li>
         </ul>
     </details>

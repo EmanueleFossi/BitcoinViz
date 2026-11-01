@@ -10,7 +10,7 @@
 <div id="app">
 
     <header class="app-header">
-       <div class="header-left">
+       <div class="header-left" id="brand-home" title="Refresh view (keeps Backend Filters)">
     <svg class="brand-logo" viewBox="0 0 40 40" width="26" height="26">
         <rect width="40" height="40" rx="9" fill="#f7931a"/>
         <polyline points="8,23 18,14 27,22 33,14" fill="none" stroke="#fff" stroke-opacity=".7" stroke-width="1.6"/>
@@ -48,8 +48,14 @@
             Backend Filters 
 <span class="sb-chev" data-ic="chevron" data-size="14"></span>
 </summary>
+        <div class="sb-defaults-row">
+<label class="sb-defaults-label" title="Largest 10–1000 · Smallest 0.5–10 · Fan-in 1 · Fan-out 1–2 (dates unchanged)">                <input type="checkbox" id="use-defaults-chk" /> Use recommended defaults
+            </label>
+            <button type="button" id="hard-reset-btn" class="sb-reset-link"
+                    title="Clear everything, including Backend Filters">Reset all</button>
+        </div>
         <div id="backend-filters-container"></div>
-    </details>
+        </details>
 
       <details class="sb-accordion" id="acc-explore">
         <summary>

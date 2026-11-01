@@ -685,8 +685,8 @@ self._suppressDeselect = false;
         this.maxMergedBtc = maxAgg;
 
         // Same BTC brackets for both; blue family = merged edges, teal family = single TX output.
-        const DAY_BUCKET_COLORS = ["#DCEEFF", "#7FB8EA", "#265F91", "#0B2C4D"];
-        const HOUR_BUCKET_COLORS = ["#DDF3D6", "#8ED17C", "#2F9E44", "#0F5A24"];
+               const DAY_BUCKET_COLORS = ["#9CC9F0", "#5B9BD5", "#265F91", "#0B2C4D"];
+        const HOUR_BUCKET_COLORS = ["#A3D995", "#6CC25A", "#2F9E44", "#0F5A24"];
                 this.dayColorScale = this._buildBucketColorScale(btcMin, btcMax, DAY_BUCKET_COLORS);
         this.hourColorScale = this._buildBucketColorScale(btcMin, btcMax, HOUR_BUCKET_COLORS);
 // Edge thickness grows with BTC (log scale, same range as the colour shades)
@@ -1456,8 +1456,7 @@ d._apex = [(xa + xb) / 2, (ya + yb) / 2 - side * h];   // top of the arch (used 
         const strokeOf = d => self._getArcHlColor(d) ||
             (self._focusKey && (d.fromNode.key === self._focusKey || d.toNode.key === self._focusKey) ? "#EC4899" : scale(d.btc));
 
-        const baseOp = d => opacity * (0.6 + 0.4 * rangeCols.indexOf(scale(d.btc)) / (rangeCols.length - 1));
-                const opOf = d => this.selectedArc ? 0.05 : baseOp(d);
+        const baseOp = d => opacity * (0.85 + 0.15 * rangeCols.indexOf(scale(d.btc)) / (rangeCols.length - 1));                const opOf = d => this.selectedArc ? 0.05 : baseOp(d);
         const nEdges = this.visibleEdges.length;
                        const baseW = nEdges > 250 ? 1.4 : nEdges > 100 ? 1.9 : 2.5;
         const widthOf = d => self._getArcHlColor(d) ? 4 : baseW;
@@ -1477,7 +1476,8 @@ d._apex = [(xa + xb) / 2, (ya + yb) / 2 - side * h];   // top of the arch (used 
             mergedVis
 .attr("data-op", baseOp)
                 .attr("stroke", strokeOf)
-                                .attr("stroke-width", widthOf)
+                                                                .attr("stroke-width", widthOf)
+                                .attr("stroke-dasharray", d => (d.isAggregated && d.count === 1) ? "5,3" : null)
                                                 .attr("marker-end", nEdges > 120 ? null : "url(#ef-arrow)");
             if (ms) {
                 enterVis.attr("opacity", 0).transition().duration(ms).delay(ms * 0.5).attr("opacity", opOf);
@@ -1777,8 +1777,8 @@ const curKey = ov.kind !== 'suspects' ? (this._hopKey || null) : (this._suspectV
         enter.transition().duration(300).attr("opacity", 1);
         if (ms) sel.transition().duration(ms).attr("d", pathOf);
         else { sel.interrupt(); sel.attr("d", pathOf).attr("opacity", 1); }
-        enter.merge(sel).attr("stroke", ov.color).attr("stroke-width", finalW);
-
+        enter.merge(sel).attr("stroke", ov.color).attr("stroke-width", finalW)
+            .attr("stroke-dasharray", d => (d.isAggregated && d.count === 1) ? "5,3" : null);
         // invisible 16px hover paths, so even a 1.5px edge is easy to hover
         const hitData = ov.kind === 'single' ? [] : drawArcs;
         const hsel = this.gChainHit.selectAll("path.chain-hit").data(hitData, d => d.key);
@@ -1940,7 +1940,7 @@ this.gHitTop.style("pointer-events", null);
 this._suspects = null; this._suspectByKey = null; this._suspectCur = -1; this._hiddenHops = null;
         this._suspectView = null; this._suspectSel = null;
 if (this.suspectChip) this._updateSuspectChip();
-this._hopKey = null; this._hopsOpen = false;
+        this._hopKey = null; this._hopsOpen = false; this._mergedOpen = false;
 this._hopsWide = false;
 this._renderSparkPanel();
 
@@ -2324,9 +2324,10 @@ return `<div style="font-size:10px;color:#92610a;margin-top:4px">${n._same.lengt
             if (acc && !acc.open) acc.open = true;
             const rowM = host.append("div").attr("class", "ef-side-row");
             rowM.append("span").text(`Selected edge · ${merged.count} flow${merged.count === 1 ? '' : 's'}`);
-            rowM.append("button").text("Details")
+                        rowM.append("button").text(this._mergedOpen ? "Hide" : "Details")
                 .attr("title", "List the transactions merged into this edge")
                 .on("click", () => self._openMergedDetails());
+            if (this._mergedOpen) self._renderMergedDetails(host, merged);
             return;
         }
 
@@ -2435,15 +2436,83 @@ return `<div style="font-size:10px;color:#92610a;margin-top:4px">${n._same.lengt
     
     }
     _openMergedDetails() {
-        const arc = this._overlay && this._overlay.kind === 'single' ? this._overlay.arcs[0] : null;
-        if (!arc) return;
-        const tx = this.txMap ? this.txMap.get(arc.hashFrom) : null;
-        const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
-        const destAddr = maxOut ? maxOut.addr : (arc.addresses[0] ? arc.addresses[0].addr : "—");
-        this._openMerged = true;
-        this._showChainPanel(arc.hashFrom, destAddr, arc.btc, arc, false);
-        this._openMerged = false;
+        if (!this._overlay || this._overlay.kind !== 'single') return;
+        this._mergedOpen = !this._mergedOpen;
+        if (this._chainPanel) this._chainPanel.style("display", "none");   // old floating panel is no longer used
+        this._renderSparkPanel();
     }
+
+    // Merged-flow details, shown inside the left panel.
+    _renderMergedDetails(host, arc) {
+        const self = this;
+        const flows = arc.addresses;
+        const flags = this._computeArcOutlierFlags(arc);
+        const maxF = d3.max(flows, f => f.btc), minF = d3.min(flows, f => f.btc);
+        const sh = a => a && a.length > 18 ? a.slice(0, 8) + '…' + a.slice(-6) : (a || '—');
+        const fT = d3.utcFormat("%d %b %Y, %H:%M");
+        const dominantFlow = flags.dominant ? flags.dominant.flow : null;
+        const keyOf = f => f.hashTo + '|' + f.addr;
+        const selfSet = new Set(flags.selfLoops.map(keyOf));
+        const topSet = new Set(flags.globalOutliers.map(keyOf));
+        const repSet = new Set(flags.repeatedAddrFlows.map(keyOf));
+        const score = f => (dominantFlow === f ? 3 : 0) + (selfSet.has(keyOf(f)) ? 2 : 0) +
+                           (topSet.has(keyOf(f)) ? 2 : 0) + (repSet.has(keyOf(f)) ? 1 : 0);
+        const sorted = [...flows].sort((a, b) => score(b) - score(a) || b.btc - a.btc);
+
+        const badge = (t, c) => `<span style="background:${c}14;border:1px solid ${c}55;color:${c};padding:0 5px;border-radius:3px;font-size:8px">${t}</span>`;
+        const copyBtn = val => `<button class="ef-copy-btn" data-copy="${val.replace(/"/g, '&quot;')}"
+            style="flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;
+                   background:transparent;border:1px solid #888;color:#555;border-radius:3px;cursor:pointer;padding:0">${ic('copy', 10)}</button>`;
+
+        const rows = sorted.map(f => {
+            const tx = self.txMap ? self.txMap.get(f.hashTo) : null;
+            const mo = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
+            const out = mo ? mo.addr : '—';
+            const k = keyOf(f), b = [];
+            if (dominantFlow === f) b.push(badge('dominant', '#6366F1'));
+            if (selfSet.has(k)) b.push(badge('self-loop', '#A855F7'));
+            if (topSet.has(k)) b.push(badge('top 1%', '#EF4444'));
+            if (repSet.has(k)) b.push(badge('repeated', '#06B6D4'));
+            return `<div style="font-family:monospace;padding:6px;border:1px solid rgba(0,0,0,0.08);border-radius:5px;background:#fafafa;margin-bottom:5px;font-size:9px">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:3px">
+                    <b style="color:#F7931A;font-size:10px">₿${f.btc.toFixed(4)}</b>
+                    <span style="display:flex;gap:3px;flex-wrap:wrap">${b.join('')}</span>
+                </div>
+                <div style="color:#888;margin-bottom:3px">${f.timeTo ? fT(f.timeTo) + ' UTC' : '—'}</div>
+                <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px"><span title="${f.hashTo}" style="flex:1;min-width:0">TX: ${sh(f.hashTo)}</span>${copyBtn(f.hashTo)}</div>
+                <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px"><span title="${f.addr}" style="flex:1;min-width:0">In: ${sh(f.addr)}</span>${copyBtn(f.addr)}</div>
+                <div style="display:flex;align-items:center;gap:4px"><span title="${out}" style="flex:1;min-width:0">Out: ${sh(out)}</span>${copyBtn(out)}</div>
+            </div>`;
+        }).join('');
+
+        const flagLines = [];
+        if (flags.dominant) flagLines.push(`One flow is <b>${(flags.dominant.pct * 100).toFixed(0)}%</b> of the volume`);
+        if (flags.selfLoops.length) flagLines.push(`<b>${flags.selfLoops.length}</b> self-loop`);
+        if (flags.globalOutliers.length) flagLines.push(`<b>${flags.globalOutliers.length}</b> in the top 1% of amounts`);
+        if (flags.repeatedAddrFlows.length) flagLines.push(`<b>${new Set(flags.repeatedAddrFlows.map(f => f.addr)).size}</b> repeated address(es)`);
+
+        const matched = this._getMatchedStats(arc);
+        const box = host.append("div").attr("class", "ef-side-hops")
+            .style("max-height", "55vh").style("overflow-y", "auto").style("font-size", "10px").style("color", "#555");
+        box.html(`
+            <div style="color:#888;font-size:9px;margin-bottom:4px">${this._nodeLabelFull(arc.fromNode)} → ${this._nodeLabelFull(arc.toNode)}</div>
+            <div style="margin-bottom:3px">Combined: <b style="color:#1a1a1a">₿ ${arc.btc.toFixed(4)}</b></div>
+            <div style="margin-bottom:6px;font-size:9px">Largest <b>₿${maxF.toFixed(4)}</b> · Smallest <b>₿${minF.toFixed(4)}</b></div>
+            ${matched ? `<div style="margin-bottom:6px;padding:4px 6px;background:#8B5CF614;border:1px solid #8B5CF655;border-radius:4px;font-size:9px">Searched address share: ₿ ${matched.btc.toFixed(4)} (${matched.count} of ${arc.count})</div>` : ''}
+            <div style="margin-bottom:6px;padding:5px 7px;background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.08);border-radius:5px;font-size:9px;line-height:1.7">
+                ${flagLines.length ? flagLines.join('<br>') : 'No self-loop, dominant, repeated-address or top-1% flow.'}
+            </div>
+            <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Merged transactions (${flows.length})</div>
+            ${rows}`);
+        box.selectAll(".ef-copy-btn").on("click", function () {
+            const val = this.getAttribute("data-copy");
+            navigator.clipboard.writeText(val).then(() => {
+                this.innerHTML = ic('check', 10);
+                setTimeout(() => { this.innerHTML = ic('copy', 10); }, 1200);
+            });
+        });
+    }
+
     _goHop(i) {
         const hops = this._hopsForSpark();
         if (!hops || i < 0 || i >= hops.length) return;

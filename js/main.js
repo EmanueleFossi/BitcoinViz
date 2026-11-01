@@ -164,7 +164,8 @@ async function exportAllDaysCSV() {
             onlySpentInPeriod:   params.onlySpentInPeriod,
         };
         saveLastFilterParams(bodyObj);   // remembers the filters for the flow chart and after refresh
-        await initExplorativeFlow();     // loads the data from /api/transactions and draws the chart
+        resetHeaderSearch();             // drop stale search listeners before the chart is rebuilt
+                await initExplorativeFlow();     // loads the data from /api/transactions and draws the chart
     } catch (err) {
         console.error("[Apply] Error:", err);
         alert(`Error: ${err.message}`);
@@ -206,7 +207,34 @@ function showLandingPlaceholder() {
         </div>
     `);
 }
-function initScatterFilters() {
+// ─── Recommended default Backend Filters (edit values here only) ───
+// Dates are NOT part of the defaults: they come from the dataset itself.
+const DEFAULT_BACKEND_FILTERS = {
+    minSingleOutput: 10,  maxSingleOutput: 1000,   // Largest output
+    minMinOutput: 0.5,    maxMinOutput: 10,        // Smallest output
+    minInputs: 1,         maxInputs: 1,            // Fan-in
+    minOutputs: 1,        maxOutputs: 2            // Fan-out
+};
+const defaultsChk = document.getElementById('use-defaults-chk');
+function setDefaultsChecked(v) { if (defaultsChk) defaultsChk.checked = !!v; }
+function matchesDefaults(p) {
+    const D = DEFAULT_BACKEND_FILTERS;
+    return Object.keys(D).every(k => +p[k] === D[k]);
+}
+
+// Hints ("e.g. 10") shown in empty boxes, taken from the defaults above.
+function applyBackendPlaceholders(fm) {
+    const D = DEFAULT_BACKEND_FILTERS;
+    const map = [
+        [fm.minValInput, D.minSingleOutput], [fm.maxValInput, D.maxSingleOutput],
+        [fm.minMinInput, D.minMinOutput],    [fm.maxMinInput, D.maxMinOutput],
+        [fm.minIn,  D.minInputs],            [fm.maxIn,  D.maxInputs],
+        [fm.minOut, D.minOutputs],           [fm.maxOut, D.maxOutputs]
+    ];
+    map.forEach(([sel, v]) => { if (sel) sel.attr("placeholder", `e.g. ${v}`); });
+}
+
+function initScatterFilters(opts = {}) {
     chartInstance = null;
     cleanupExplorativeUI();
 
@@ -214,12 +242,22 @@ function initScatterFilters() {
     filterContainer.selectAll("*").remove();
 
     filterManager = new FilterManager([], () => {}, filterContainer);
+    applyBackendPlaceholders(filterManager);
 
-    // Restore the last applied filters into the form (survives page refresh)
+    if (opts.blank) {                              // hard reset: empty form
+        restoreBackendFilters({});
+        setDefaultsChecked(false);
+        return;
+    }
     const saved = getLastFilterParams();
-    if (saved) restoreBackendFilters(saved);
+    if (saved) {
+        restoreBackendFilters(saved);
+        setDefaultsChecked(matchesDefaults(saved));
+       } else {
+        restoreBackendFilters({});          // first load: empty form with "e.g." hints
+        setDefaultsChecked(false);          // the user ticks the defaults by hand
+    }
 }
-
 // Puts previously applied filter values back into the Backend Filters form.
 // Infinity is saved as null in JSON, so null/blank shows as empty ("no limit").
 function restoreBackendFilters(p) {
@@ -227,8 +265,10 @@ function restoreBackendFilters(p) {
     const setNum = (sel, v) =>
         sel.property("value", (v === null || v === undefined || !isFinite(v)) ? "" : v);
 
-    fm.startDateInput.property("value", p.startDate || "");
-    fm.endDateInput.property("value", p.endDate || "");
+        // Dates are only restored when saved filters contain them; otherwise
+    // the FilterManager's own (dataset-based) values stay.
+    if ('startDate' in p) fm.startDateInput.property("value", p.startDate || "");
+    if ('endDate' in p)   fm.endDateInput.property("value", p.endDate || "");
 
     setNum(fm.minValInput, p.minSingleOutput);
     setNum(fm.maxValInput, p.maxSingleOutput);
@@ -253,6 +293,67 @@ function cleanupExplorativeUI() {
 const exportBtn = document.getElementById('export-csv-btn');
 if (exportBtn) exportBtn.addEventListener('click', exportAllDaysCSV);
 
+// ─── Resets ───────────────────────────────────────────────
+// The header search button/input get new listeners every time the chart is
+// built; cloning them drops the old (stale) ones.
+function resetHeaderSearch() {
+    ['fp-hl-input', 'fp-hl-btn'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.replaceWith(el.cloneNode(true));
+    });
+    const inp = document.getElementById('fp-hl-input');
+    if (inp) inp.value = '';
+    document.querySelectorAll('#fp-hl-list .fp-tag').forEach(t => t.remove());
+}
 
+// SOFT: keeps Backend Filters + loaded data. Clears searched addresses, frontend
+// filters, heuristics, selections, focus, panels and zoom (back to the 1-hour view).
+function softReset() {
+    resetHeaderSearch();
+    hlColorIdx = 0;                       // address colours start again
+    if (getLastFilterParams()) initExplorativeFlow();
+    else showLandingPlaceholder();
+}
+
+// HARD: soft reset + empty Backend Filters + forgets the saved filters.
+function hardReset() {
+    sessionStorage.removeItem('lastFilterParams');
+    resetHeaderSearch();
+    hlColorIdx = 0;
+    cleanupExplorativeUI();
+    d3.select("#ef-hop-panel").remove();
+    d3.select("#ef-no-data-banner").remove();
+    d3.selectAll(".ef-pinned-tip").remove();
+
+    const ph = '<p class="fp-placeholder">Apply Backend Filters and click "Apply & Visualize" to unlock this and if already applied then wait for data to load.</p>';
+    d3.select("#explore-flow-container").html(ph);
+    d3.select("#peel-detection-container").html(ph);
+
+    d3.select("#chart-area").html(`
+        <div class="landing-placeholder-simple">
+            <p>Apply backend filters first, then click <b>Apply & Visualize</b>.</p>
+        </div>
+    `);
+    const cnt = document.getElementById('header-tx-count');
+    if (cnt) cnt.textContent = '';
+    updateHeaderBadge(null);
+
+    initScatterFilters({ blank: true });
+    const acc = document.getElementById('acc-data');
+    if (acc) acc.open = true;
+}
+
+document.getElementById('brand-home')?.addEventListener('click', softReset);
+document.getElementById('hard-reset-btn')?.addEventListener('click', () => {
+    if (confirm('Reset everything, including all Backend Filters?')) hardReset();
+});
+
+// Defaults checkbox: ticking fills the form; editing any field unticks it.
+defaultsChk?.addEventListener('change', () => {
+    if (defaultsChk.checked) restoreBackendFilters(DEFAULT_BACKEND_FILTERS);
+});
+['input', 'change'].forEach(evt =>
+    document.getElementById('backend-filters-container')
+        ?.addEventListener(evt, () => setDefaultsChecked(false)));
 // ─── Avvio ────────────────────────────────────────────────
 initApp();
