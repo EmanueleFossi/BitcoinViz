@@ -65,7 +65,7 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
             .style("position", "relative")
                     .html(`
               <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;white-space:nowrap">
-    <span title="Several flows merged into one edge"><b style="color:#265F91">●</b> Merged txns flows</span>
+    <span title="Several flows merged into one edge"><b style="color:#265F91">●</b> Merged flows</span>
     <span title="A merged edge that contains just one flow (shade still shows the BTC)"><svg width="18" height="8" style="vertical-align:middle"><line x1="0" y1="4" x2="18" y2="4" stroke="#265F91" stroke-width="2" stroke-dasharray="4,2.5"/></svg> Merged, 1 flow</span>    <span title="One transaction output (1-hour view)"><b style="color:#2F9E44">●</b> Single txn output</span>
     <span title="The chain or edge you clicked"><b style="color:#EC4899">●</b> Selected flow </span>
     <span title="Matches the system's peeling-chain rules"><b style="color:#F59E0B">●</b> Suspicious chain</span>
@@ -79,14 +79,16 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
         #ef-legend-help ul { margin:0 0 6px; padding-left:16px; }
         #ef-legend-help li { margin-bottom:3px; }
     </style>
-    <div style="font-weight:700;color:#222;font-size:12px;margin-bottom:6px">How to read this view</div>
-
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-weight:700;color:#222;font-size:12px">How to read this view</span>
+        <button id="ef-legend-help-close" title="Close" style="background:none;border:none;cursor:pointer;font-size:14px;color:#555;line-height:1;padding:0">✕</button>
+    </div>
     <details open>
         <summary>1 · The basics</summary>
         <ul>
-<li>Each <b>node</b> is a time window (day, 12 h, 6 h or 1 h). Time runs left to right. All times are UTC.</li>
+<li>Each <b>node</b> is a time window (day, 12 h, 6 h or 1 h).  All times are UTC.</li>
 <li>Each <b>edge</b> is BTC that moved from one window to a later one.</li>
-<li><b style="color:#2F9E44">Green</b> edge = one output that was later spent (1-hour windows). <b style="color:#265F91">Blue</b> edge = several such outputs merged (larger windows). A <b>dashed</b> blue edge is a merged edge that holds only one flow.</li>
+<li><b style="color:#2F9E44">Green</b> edge = one output that was later spent (1-hour windows). <b style="color:#265F91">Blue</b> edge = several such outputs aggregated between the same two nodes. A <b>dashed</b> blue edge is a merged edge that holds only one flow.</li>
             <li>A <b>hop</b> is one link of a chain: an output spent as an input of the next transaction.</li>
         </ul>
     </details>
@@ -96,9 +98,10 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
         <ul>
             <li><b>Scroll</b>  to open or close all windows one step (day, 12 h, 6 h, 1 h).</li>
             <li><b>Click a node</b> to open only that window. <b>Click a box label</b> to close it. <b>Drag</b> to pan.</li>
-<li>The <b>timeline overview</b> on top shows every day. Drag its orange box to move along the timeline. "Collapse all" goes back to days.</li>
-            <li><b>Long edges</b>: hide edges that span more than N windows to reduce clutter.</li>
-        </ul>
+<li>The <b>timeline overview</b> on top shows every day. Drag its orange box to move along the timeline. "Collapse all" goes back to days, "Expand all" opens everything to hours.</li>
+<li><b>Long edges</b> (left panel, Frontend Filters): hide edges spanning &gt; N nodes. The hidden count is shown in the left panel and in the legend bar. Display only; chain detection is not affected.</li>
+<li><b>ITOF Graph</b> = Individual Transaction Output Flow graph: every edge is one transaction output (1-hour windows).</li>
+<li><b>TAF Graph</b> = Transaction Aggregated Flow graph: all transaction outputs that start in the same node and end in the same node are aggregated into one edge.</li>
     </details>
 
     <details>
@@ -114,9 +117,9 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
     <details>
         <summary>4 · Suspicious chains</summary>
         <ul>
-            <li>The longest chains are marked <b style="color:#F59E0B">amber</b>, <b>#1 = longest</b>. Use ◀ ▶ or click a start edge to open a chain. ✕ clears. <b>View all</b> lists every chain.</li>
+            <li>The longest chains are marked <b style="color:#F59E0B">amber</b>, <b>#1 = longest</b>. Use ◀ ▶ or click a start edge to open a chain. ✕ clears. <b>View all</b> (top bar) lists every chain</li>
             <li>In an open chain: <b>dashed ring</b> on a node = hops inside one hour (no arc; hover the dot for their amounts).</li>
-            <li><b>Amount per hop → Show</b>: one dot per hop. Hover to read, click or ◀ ▶ to step; the current hop is thicker on the graph.</li>
+            <li><b>Inspector Panel → Sparkline chart → Show</b>: one dot per hop. Hover to read, click or ◀ ▶ to step; the current hop is thicker on the graph.</li>
 <li>The timeline overview shows an <b style="color:#F59E0B">amber underline</b> on the days where the shown chains start. For an open chain, it marks every day the chain passes through.</li>
             <li>Suspicious means "matches the system's peeling rules". It is a lead to check, not proof.</li>
         </ul>
@@ -137,17 +140,17 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
         let legendHelpOpen = false;
         const legendBtn = document.getElementById('ef-legend-help-btn');
         const legendHelp = document.getElementById('ef-legend-help');
-        legendBtn.addEventListener('click', (e) => {
+               legendBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             legendHelpOpen = !legendHelpOpen;
             legendHelp.style.display = legendHelpOpen ? 'block' : 'none';
         });
-        document.addEventListener('click', (e) => {
-            if (legendHelpOpen && !legendHelp.contains(e.target) && e.target !== legendBtn) {
-                legendHelpOpen = false;
-                legendHelp.style.display = 'none';
-            }
+        document.getElementById('ef-legend-help-close').addEventListener('click', (e) => {
+            e.stopPropagation();
+            legendHelpOpen = false;
+            legendHelp.style.display = 'none';
         });
+        // no click-outside closing: it also cleared the selected chain
 
         const chart = new ExplorativeFlowChart(chartArea, cleanedRaw);
         buildExplorativeSidebar(chart);
@@ -378,6 +381,19 @@ function fpApply(animate) {
     <span id="fp-edge-label" style="margin-left:auto;color:var(--orange);font-weight:600;text-transform:none;letter-spacing:0">0 BTC</span></div>
     <input type="range" id="fp-edge-slider" min="0" max="500" value="0" style="width:100%" />
 </div>
+<div class="fp-section" id="fp-long-section" title="Display only: does not affect chain detection (Heuristics). Default N = number of nodes visible on screen.">
+    <div class="fp-lbl">Edge Display
+        <span id="fp-long-count" style="margin-left:auto;color:var(--orange);font-weight:600;text-transform:none;letter-spacing:0;white-space:nowrap"></span></div>
+    <div class="fp-check-row" style="flex-wrap:nowrap;gap:5px">
+        <select id="fp-long-mode" style="flex:0 0 auto">
+            <option value="hide">Hide</option>
+            <option value="show">Show</option>
+        </select>
+        <span class="fp-mini">long edges &gt;</span>
+        <input type="number" id="fp-long-input" min="2" max="200" style="flex:0 0 48px;width:48px;min-width:0" />
+        <span class="fp-mini">nodes</span>
+    </div>
+</div>
 
         `);
 
@@ -391,7 +407,7 @@ function fpApply(animate) {
     </div>
     <div class="fp-check-row" style="margin-top:6px">
         <input type="checkbox" id="fp-peel-decreasing" checked />
-        <label for="fp-peel-decreasing" style="font-size:10px;cursor:pointer">Require shrinking amount per hop</label>
+        <label for="fp-peel-decreasing" style="font-size:10px;cursor:pointer">Decreasing amount per hop</label>
     </div>
     <button id="fp-detect-peel-btn" class="fp-add" style="width:100%;padding:6px;font-size:11px;margin-top:6px">Suggest Suspicious Chains</button>
 </div>
@@ -425,13 +441,24 @@ function fpApply(animate) {
         const sec = document.getElementById('fp-edge-section');
         sec.style.opacity = single ? 0.45 : 1;
         sec.title = single
-            ? 'Not used in the Single TX Output View.'
+            ? 'Not used in the ITOF Graph View.'
             : 'Blue (merged) edges only. Has an effect only above the minimum single flow value.';
     };
     chart.onModeChange(chart.singleMode);
     document.getElementById('fp-hl-btn').addEventListener('click', () => fpAddTag('hl'));
     document.getElementById('fp-hl-input').addEventListener('keydown', e => { if (e.key === 'Enter') fpAddTag('hl'); });
-const peelBtn  = document.getElementById('fp-detect-peel-btn');
+    const longIn = document.getElementById('fp-long-input');
+    const longSel = document.getElementById('fp-long-mode');
+    longIn.value = chart._longSlots || '';
+    longSel.value = chart._longMode;
+    longIn.addEventListener('change', function () {
+        const v = Math.max(2, Math.min(200, +this.value || 8));
+        this.value = v;
+        chart._setLongMode(null, v);
+    });
+    longSel.addEventListener('change', function () { chart._setLongMode(this.value); });
+        chart._updateHiddenChip();
+    const peelBtn  = document.getElementById('fp-detect-peel-btn');
 
 
    

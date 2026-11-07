@@ -55,8 +55,8 @@ class ExplorativeFlowChart {
         this.visibleNodes = [];
         this.boxes = [];
         this.contentW = 0;
-        this._longMode = 'show';        // 'show' | 'hide'
-            this._longSlots = 8;            // an edge is "long" above this many windows
+       this._longMode = 'hide';        // 'show' | 'hide'
+this._longSlots = null;         // an edge is "long" above this many NODES (set from the screen at start)
         this._arcHeightMap = new Map();
         // Chain panel sparkline state
         this._chainPanelShowSparkline = false;
@@ -84,8 +84,9 @@ class ExplorativeFlowChart {
         this._buildTooltip();
 
         this._refresh(false);
+this._initLongSlots();
 
-        this._onResize = () => {
+this._onResize = () => {
             if (!document.body.contains(this.container.node())) {
                 window.removeEventListener('resize', this._onResize);
                 return;
@@ -515,7 +516,7 @@ inAddr: inAddr, uncertain: origin.uncertain, bridged: !!origin.bridged, gapBtc: 
     }
     
         _slotWidthOf(level) {
-        return this.slotW * (level === 'day' ? 1 : level === '12h' ? 0.9 : level === '6h' ? 0.8 : 0.55);
+        return this.slotW * (level === 'day' ? 1 : level === '12h' ? 0.9 : level === '6h' ? 0.8 : (this._longMode === 'hide' ? 0.8 : 0.55));
     }
     _nodeLabelFull(n) {
         if (!n) return '—';
@@ -568,31 +569,14 @@ inAddr: inAddr, uncertain: origin.uncertain, bridged: !!origin.bridged, gapBtc: 
         this.sparkBtn = d3.select("#ef-spark-btn").on("click", () => self._toggleSparkPanel());
 
 
-        const lc = bar.append("div")
-                    .attr("class", "ef-long")
-            .style("font-size", "10px")
-            .style("display", "flex").style("align-items", "center").style("gap", "6px")
-            .style("padding", "3px 8px").style("background", "#ffffff")
-            .style("border", "1px solid var(--border)").style("border-radius", "5px")
-            .style("color", "#555").style("white-space", "nowrap");
-        lc.append("span").text("Long edges");
-        const lsel = lc.append("select")
-            .style("font-size", "10px").style("padding", "1px 2px")
-            .on("change", function () { self._setLongMode(this.value); });
-        [["show", "Show"], ["hide", "Hide"]].forEach(([v, t]) =>
-            lsel.append("option").attr("value", v).text(t));
-        lsel.property("value", this._longMode);
-        lc.append("span").text(">").attr("title", "longer than N nodes");
-        lc.append("input").attr("type", "number").attr("min", 2).attr("max", 60)
-            .property("value", this._longSlots)
-            .style("width", "40px").style("font-size", "10px")
-            .on("change", function () {
-                const v = Math.max(2, Math.min(60, +this.value || 8));
-                this.value = v;
-                self._setLongMode(null, v);
-            });
-        lc.attr("title", "Long edges: show or hide edges that span more than N nodes");
-
+this.expandBtn = bar.append("button")
+    .attr("class", "ef-expand")
+    .text("Expand all")
+    .style("font-size", "10px").style("padding", "3px 9px")
+    .style("border", "1px solid var(--border)").style("border-radius", "5px")
+    .style("background", "#ffffff").style("color", "#555").style("cursor", "pointer")
+    .style("white-space", "nowrap").style("display", "none")
+    .on("click", () => self._expandAll());
         this.resetBtn = bar.append("button")
             .attr("class", "ef-reset")
             .text("Collapse all")
@@ -1017,6 +1001,7 @@ const singleMode = this._chainOverlayActive() || this.filteredLevels.hour.length
         this._renderNodes(nodes, ms);
         this._renderOverlay(ms);
         this._updateFocusChip();
+        this._updateHiddenChip();
         this._renderOverview();
                         this._drawLegend();
 
@@ -1024,10 +1009,13 @@ const singleMode = this._chainOverlayActive() || this.filteredLevels.hour.length
 const NAMES = { day: '24-hour', '12h': '12-hour', '6h': '6-hour', hour: '1-hour' };
         const windows = lv.length === 1 ? `${NAMES[lv[0]]} windows` : 'mixed windows';
                this.hintBar.html(
-            `${this.singleMode ? 'Single TX Output View' : 'TAF-Graph View'}` +
-            `<span style="font-size:12px;color:#555;margin-left:8px">· ${windows}</span>`);
+`${this.singleMode ? 'ITOF Graph View' : 'TAF-Graph View'}` +
+`<span style="font-size:12px;color:#555;margin-left:8px">· ${windows}</span>`);
                 this.resetBtn.style("display", (this.expanded.size || this.overrides.size || this.autoLevel) ? null : "none");
-        this._fitTitle();
+                this.expandBtn.style("display",
+    (this.autoLevel < 3 || [...this.overrides.values()].some(v => v === false)) ? null : "none");
+        
+                this._fitTitle();
         if (this._lastSingleMode !== this.singleMode) {
             this._lastSingleMode = this.singleMode;
             if (this.onModeChange) this.onModeChange(this.singleMode);
@@ -1062,8 +1050,7 @@ const NAMES = { day: '24-hour', '12h': '12-hour', '6h': '6-hour', hour: '1-hour'
             for (const q of placed[side]) if (q !== p && q.lo === p.lo && q.hi === p.hi) c++;
             return c;
         };
-        info.filter(p => sameDay(p.e)).forEach(p => { p.e._side = -1; placed['-1'].add(p); });
-        const far = info.filter(p => !sameDay(p.e));
+const far = info;
         far.sort((x, y) => (x.hi - x.lo) - (y.hi - y.lo))        // short arcs first: most constrained
             .forEach(p => {
                 const t = countOn(1, p), b = countOn(-1, p);
@@ -1106,10 +1093,10 @@ const NAMES = { day: '24-hour', '12h': '12-hour', '6h': '6-hour', hour: '1-hour'
                const FOCUS = !!this._focusKey;
         // Long edges hidden -> the freed height goes to the remaining edges.
         const ROOMY = !FOCUS && this._longMode === 'hide';
-        const ASPECT = ROOMY ? 0.6 : 0.45, GAP = FOCUS ? 8 : ROOMY ? 6 : 4, FLOOR = 14, LOCAL_FLOOR = 8;
-        const CAP = FOCUS ? [40, 50, 60] : ROOMY ? [30, 40, 50] : [22, 28, 34];
-                        const smax = this._smax || 1;
-        const nGaps = Math.max(1, nodes.length);
+const ASPECT = ROOMY ? 1.0 : 0.45, GAP = FOCUS ? 8 : ROOMY ? 10 : 4, FLOOR = 14, LOCAL_FLOOR = 8;
+const CAP = FOCUS ? [40, 50, 60] : ROOMY ? [0.35 * maxH, 0.5 * maxH, 0.7 * maxH] : [22, 28, 34];
+const smax = this._smax || 1;
+const nGaps = Math.max(1, nodes.length);
 
         [1, -1].forEach(side => {
             const groups = new Map();
@@ -1133,12 +1120,20 @@ const NAMES = { day: '24-hour', '12h': '12-hour', '6h': '6-hour', hour: '1-hour'
                        : (a.dayKey === b.dayKey ? 2 : 3);   // 6h box, 12h box, day box, everything else              
                          g.edges.sort((x, y) => x.btc - y.btc || (x.key < y.key ? -1 : 1)); // biggest = outermost
                 const n = g.edges.length;
-                g.step = Math.max(1.5, Math.min(FOCUS ? 8 : ROOMY ? 6 : 4, 0.35 * maxH / n));                                g.thick = (n - 1) * g.step;
+g.step = Math.max(1.5, Math.min(FOCUS ? 8 : ROOMY ? 6 : 4, 0.35 * maxH / n));
+                     g.thick = (n - 1) * g.step;
             });
             list.sort((x, y) => x.zone - y.zone || x.span - y.span || x.lo - y.lo);
 
-            let sky = new Array(nGaps).fill(0);
+let sky = new Array(nGaps).fill(0);
 
+// Hide mode: height depends on distance. Near edges get lots of room, far edges share the top.
+const maxD = Math.max(1, d3.max(list, g => g.hi - g.lo) || 1);
+const NEAR_POWER = 2.2;   // bigger = even more room for near edges
+const nearBase = g => {
+    const t = Math.min(1, (g.hi - g.lo) / maxD);
+    return Math.max(LOCAL_FLOOR, 0.9 * maxH * (1 - Math.pow(1 - t, NEAR_POWER)));
+};
             [0, 1, 2, 3].forEach(z => {
                                 const zs = list.filter(g => g.zone === z);
                 if (!zs.length) return;
@@ -1152,20 +1147,25 @@ const NAMES = { day: '24-hour', '12h': '12-hour', '6h': '6-hour', hour: '1-hour'
                         if (sky[i] > s) s = sky[i];
                         if (snap[i] > s0) s0 = snap[i];
                     }
-                    const base = z < 3
+const base = ROOMY ? nearBase(g) : z < 3
                         ? Math.min(CAP[z], Math.max(LOCAL_FLOOR, ASPECT * g.span))
                         : Math.max(FLOOR, Math.min(maxH * Math.pow(Math.min(1, g.span / smax), 0.7), ASPECT * g.span));
                                                                     g.s0 = s0;
                     g.h0 = Math.max(base, s > 0 ? s + GAP : 0);
                     for (let i = g.lo; i < g.hi; i++) sky[i] = g.h0 + g.thick;
                 });
-
+if (z === 3 && zs.length > 1 && !FOCUS && !ROOMY) {
+        const floor3 = Math.max(FLOOR, d3.max(snap) || 0) + GAP;
+    const maxThick = d3.max(zs, g => g.thick) || 0;
+    const step3 = Math.max(0, (maxH - floor3 - maxThick) / (zs.length - 1));
+    zs.forEach((g, i) => { g.h0 = floor3 + i * step3; });   // short edge lowest, long edge highest
+}
                 // If the zone got too tall, squeeze it (only the part above what is beneath it).
                 let limit = maxH;
-                                if (z < 3) {
-                    const HARD = FOCUS ? [80, 95, 110] : ROOMY ? [0.4 * maxH, 0.55 * maxH, 0.8 * maxH] : [56, 70, 84];
-                                        const need = d3.max(zs, g => g.h0 + g.thick) || 0;
-                    limit = Math.min(HARD[z], Math.max(CAP[z], need));   // grows with the number of edges
+if (z < 3 && !ROOMY) {
+    const HARD = FOCUS ? [80, 95, 110] : ROOMY ? [0.6 * maxH, 0.8 * maxH, maxH] : [56, 70, 84];
+const need = d3.max(zs, g => g.h0 + g.thick) || 0;
+limit = Math.min(HARD[z], Math.max(CAP[z], need));   // grows with the number of edges
                 }
                                 let k = 1;
                 zs.forEach(g => {
@@ -1212,11 +1212,11 @@ const NAMES = { day: '24-hour', '12h': '12-hour', '6h': '6-hour', hour: '1-hour'
             add(e.toNode, side, { e, out: false, k: d, fan });
         });
         const FOCUS = !!this._focusKey;
-        const spread = FOCUS ? Math.min(this.slotW * 0.5, 30) : R * 1.6;
+const spread = FOCUS ? Math.min(this.slotW * 0.5, 30) : R * 2.4;
                 ends.forEach(arr => {
             arr.sort((a, b) => a.k - b.k || (a.out ? b.fan - a.fan : a.fan - b.fan));
             const m = arr.length;
-            const step = m > 1 ? Math.min(FOCUS ? 4 : 2.2, spread / (m - 1)) : 0;
+const step = m > 1 ? Math.min(FOCUS ? 4 : 3, spread / (m - 1)) : 0;
                         arr.forEach((p, i) => { p.e[p.out ? '_pf' : '_pt'] = (i - (m - 1) / 2) * step; });
         });
     }
@@ -1244,11 +1244,18 @@ const NAMES = { day: '24-hour', '12h': '12-hour', '6h': '6-hour', hour: '1-hour'
         if (n.level === '6h') return `${dd} ${efP2(n.H)}–${efP2(n.H + 6)}h`;
         return `${dd} ${efP2(n.H)}:00`;
     }
+    _initLongSlots() {
+    const n = this.visibleNodes.filter(x => x.px >= 0 && x.px <= this.svgW).length;
+    this._longSlots = Math.max(2, Math.min(200, n));
+const inp = d3.select("#fp-long-input");
+    if (!inp.empty()) inp.property("value", this._longSlots);
+    this._refresh(false);
+}
 
 // ── Long edges: show or hide ──
     _setLongMode(mode, slots) {
         if (mode) this._longMode = mode;
-        if (slots) this._longSlots = slots;
+if (slots) this._longSlots = slots;
         this._dropSelectionState();
         if (this.tip) this.tip.style("opacity", 0);
         this._refresh(true);
@@ -1345,10 +1352,13 @@ const openChain = this._overlay && this._overlay.kind === 'peel' && this._suspec
     // In "hidden" mode long edges are removed (not while a node is focused, and never
     // for edges that match a searched address). Nodes remember how many they lost.
     _applyLongEdges(edges, nodes) {
-        const L = this._longSlots;
-        nodes.forEach(n => { n._hid = 0; });
-        edges.forEach(e => {
-            e._dist = Math.abs(e.toNode.idx - e.fromNode.idx);
+const L = this._longSlots == null ? Infinity : this._longSlots;
+this._hiddenCount = 0;
+this._hiddenFlows = 0;
+this._totalFlows = edges.reduce((s, e) => s + (e.count || 1), 0);
+nodes.forEach(n => { n._hid = 0; });
+edges.forEach(e => {
+e._dist = Math.abs(e.toNode.idx - e.fromNode.idx);
             e._long = e._dist > L && e.fromNode.dayKey !== e.toNode.dayKey;
         });
         if (this._focusKey || this._longMode !== 'hide') return edges;
@@ -1357,9 +1367,10 @@ const openChain = this._overlay && this._overlay.kind === 'peel' && this._suspec
         const keep = [];
         edges.forEach(e => {
             if (!e._long || ovKeys.has(e.key) || this._getArcHlColor(e)) keep.push(e);
-            else { e.fromNode._hid++; e.toNode._hid++; }
+else { e.fromNode._hid++; e.toNode._hid++; this._hiddenFlows +=(e.count || 1); }
         });
-        return keep;
+       this._hiddenCount = edges.length - keep.length;
+return keep;
     }
         // ── Focus mode ──
     _focusOnNode(node) {
@@ -1377,7 +1388,23 @@ const openChain = this._overlay && this._overlay.kind === 'peel' && this._suspec
         if (this.tip) this.tip.style("opacity", 0);
         this._refresh(true);
     }
+_updateHiddenChip() {
+    const sel = document.getElementById('fp-long-mode');
+    if (sel && sel.value !== this._longMode) sel.value = this._longMode;   // keep sidebar in sync
 
+    let txt = '', tip = '';
+    if (this._longMode === 'hide') {
+        const n = this._hiddenCount || 0, f = this._hiddenFlows || 0, T = this._totalFlows || 0;
+        if (this._focusKey) { txt = 'paused'; tip = 'Hiding is paused while a node is focused.'; }
+        else if (f === 0) { txt = 'none hidden'; tip = 'No edge is longer than N nodes.'; }
+        else {
+            txt = `${f} / ${T} hidden`;
+tip = `${f} of ${T} flows in the current view are hidden` +
+                  (this.singleMode ? '.' : ` (${n} merged edge${n === 1 ? '' : 's'}).`);
+        }
+    }
+    d3.select("#fp-long-count").text(txt).attr("title", tip);
+}
     _updateFocusChip() {
         if (!this.focusChip) return;
         const fn = this._focusKey ? this._nodeCache.get(this._focusKey) : null;
@@ -1447,8 +1474,8 @@ d._apex = [(xa + xb) / 2, (ya + yb) / 2 - side * h];   // top of the arch (used 
     _renderArcLayer(className, arcs, opacity, ms) {
         const self = this, axisY = this._axisY;
         const scale = className === "day-arcs" ? this.dayColorScale : this.hourColorScale;
-        const arcsTop = arcs.filter(a => (a._side || 1) === 1);
-        const arcsBot = arcs.filter(a => (a._side || 1) === -1);
+        const arcsTop = arcs.filter(a => (a._side || 1) === 1).sort((a, b) => a.btc - b.btc);
+const arcsBot = arcs.filter(a => (a._side || 1) === -1).sort((a, b) => a.btc - b.btc);
         const pathOf = d => self._edgePath(d, d.fromNode.px, d.toNode.px, true);
                 const rangeCols = scale.range();
        
@@ -1473,6 +1500,7 @@ d._apex = [(xa + xb) / 2, (ya + yb) / 2 - side * h];   // top of the arch (used 
                 .attr("d", pathOf);
 
             const mergedVis = enterVis.merge(selVis);
+            mergedVis.order();
             mergedVis
 .attr("data-op", baseOp)
                 .attr("stroke", strokeOf)
@@ -1817,10 +1845,13 @@ if (s) self._selectSuspect(s);
             });
 
         // hop-count badge on each suspicious start edge
-const badgeData = ov.kind === 'suspects' && this._suspectByKey && (this._suspectView || []).length <= 25
-            ? drawArcs.filter(a => a._apex && this._suspectByKey.has(a.key) &&
-                a._apex[0] > this.margin.left && a._apex[0] < this.svgW - this.margin.right)
-            : [];
+const badgeSource = ov.kind === 'suspects' ? drawArcs
+    : (ov.kind === 'peel' && this._suspectSel
+        ? drawArcs.filter(a => a.key === this._suspectSel.startArc.key) : []);
+const badgeData = this._suspectByKey && (ov.kind !== 'suspects' || (this._suspectView || []).length <= 25)
+    ? badgeSource.filter(a => a._apex && this._suspectByKey.has(a.key) &&
+        a._apex[0] > this.margin.left && a._apex[0] < this.svgW - this.margin.right)
+    : [];
         const bsel = this.gChain.selectAll("g.chain-badge").data(badgeData, d => d.key);
         bsel.exit().remove();
         const benter = bsel.enter().append("g").attr("class", "chain-badge").style("pointer-events", "none");
@@ -1998,6 +2029,13 @@ this._renderSparkPanel();
         this._applyAutoLevel(0);
         this._refresh(true, { reset: true });
     }
+    _expandAll() {
+    this._focusKey = null;
+    this._dropSelectionState();
+    this.overrides.clear();
+    this._applyAutoLevel(3);          // 3 = hours, the ITOF view
+    this._refresh(true, { reset: true });
+}
 
     // Open every day / 6-hour window that contains an end of the given single flows,
     // so those flows can be drawn as individual TX outputs between hour nodes.
@@ -2022,7 +2060,7 @@ this._renderSparkPanel();
         this.gHitBot.style("pointer-events", "none");
         if (flowArcs.length) this._expandToHours(flowArcs);
         this._refresh(true);
-if (!ov.keepView) this._centerOnArc(ov.focusArc || ov.arcs[0]);
+if (!ov.keepView) this._alignLeft(ov.focusArc || ov.arcs[0]);
         this._renderSparkPanel();
         }
         // Chains are built from single address links, so before detection the whole view switches to
@@ -2035,8 +2073,7 @@ if (!ov.keepView) this._centerOnArc(ov.focusArc || ov.arcs[0]);
         this._applyAutoLevel(3);
         this._refresh(true, { reset: true });
         this._showViewNotice(
-            'Chains are built from single address links, so the view switched to 1-hour single TX outputs (green).',
-            () => {
+'Chains are built from single address links, so the view switched to the ITOF Graph View (1-hour windows, green).',            () => {
                 this.overrides = saved.overrides;
                 this._applyAutoLevel(saved.autoLevel);
                 this.zoomT = saved.zoomT;
@@ -2213,10 +2250,9 @@ this._hiddenHops = c.arcs.map((h, i) => ({ ...h, n: i + 1 }))
         const sel = chip.append("select").style("font-size", "10px")
             .attr("title", "How many chains are drawn (longest first)")
             .on("change", function () { self._setSuspectLimit(+this.value); });
-        [[10, "10 longest"], [25, "25 longest"], [0, "all"]]
-            .forEach(([v, t]) => sel.append("option").attr("value", v).text(t));
-        sel.property("value", this._suspectLimit || 0);
-
+        [[10, "10 longest"], [25, "25 longest"], [0, "all chains"]]
+                    .forEach(([v, t]) => sel.append("option").attr("value", v).text(t));
+        mk("View all", "Open the list of every detected chain", () => self._showPeelResults(self._peelCandidates));
         mk("◀", "Previous chain", () => self._stepSuspect(-1));
         chip.append("span").attr("title", "Rank: #1 is the longest chain")
             .text(`#${this._suspectCur >= 0 ? this._suspectCur + 1 : '–'} / ${n}`);
@@ -2309,14 +2345,8 @@ return `<div style="font-size:10px;color:#92610a;margin-top:4px">${n._same.lengt
             .style("background", "#ffffff").style("box-sizing", "border-box");
 
         // row 1: all detected chains
-        if (total) {
-            const row = host.append("div").attr("class", "ef-side-row");
-            row.append("span").text(`${total} chains detected`);
-            row.append("button").text("View all")
-                .attr("title", "Open the list of every detected chain")
-                .on("click", () => self._showPeelResults(self._peelCandidates));
-           
-        }
+               host.append("div").style("font-size", "12px").style("font-weight", "700")
+            .style("color", "#222").style("margin-bottom", "8px").text("Inspector Panel");
 
         // a selected merged (blue) edge: details only on request
         if (merged) {
@@ -2333,7 +2363,7 @@ return `<div style="font-size:10px;color:#92610a;margin-top:4px">${n._same.lengt
 
         // row 2: amount per hop (opens only when the button is pressed)
         const row2 = host.append("div").attr("class", "ef-side-row");
-        row2.append("span").text("Amount per hop");
+row2.append("span").text("Sparkline chart");
         row2.append("button").text(this._hopsOpen ? "Hide" : "Show")
             .attr("title", "Amount of every hop of the selected chain")
             .on("click", () => {
@@ -2552,6 +2582,16 @@ return `<div style="font-size:10px;color:#92610a;margin-top:4px">${n._same.lengt
         this.svgEl.transition().duration(500)
             .call(this.zoom.translateTo, f.bx, this._axisY);
     }
+    _alignLeft(arc) {
+    if (!arc || !this.zoom) return;
+    const [f] = this._arcEnds(arc);
+    if (!f || f.bx == null) return;
+const wantX = this.margin.left + 30;   // small number = closer to the left edge
+    this.svgEl.transition().duration(500).call(
+        this.zoom.transform,
+        d3.zoomIdentity.translate(wantX - f.bx, this.zoomT.y).scale(this.zoomT.k)
+    );
+}
     // Press P while hovering: keeps a selectable copy of the tooltip on screen.
     _pinTip() {
         if (!this.tip || +this.tip.style("opacity") < 0.5) { this._unpinTip(); return; }
@@ -2668,10 +2708,31 @@ const outAddr = d.inAddr || (d.addresses[0] ? d.addresses[0].addr : '—');
             ${row('TX hash', `<span data-full="${d.hashFrom}">${sh(d.hashFrom)}</span>`, true)}
             ${row('Spent address', `<span data-full="${outAddr}">${sh(outAddr)}</span>`, true)}
             ${gapStr ? row('Spent after', gapStr) : ''}
-            ${row('Chain', this._chainLabel(d, pos))}
+                       ${row('Chain', this._chainLabel(d, pos))}
+            ${this._sideOutputsHtml(d, row)}
             ${hid}
             <div class="ef-pin-hint" style="font-size:9px;color:#888;margin-top:5px">Press <b>P</b> to pin this box, then select and copy text</div>`;
-            }        
+            }  
+                // Side outputs = every output of the origin transaction except the one that continues the chain.
+    _sideOutputsHtml(d, row) {
+        const tx = this.txMap ? this.txMap.get(d.hashFrom) : null;
+        if (!tx) return '';
+        const outs = tx.outputs.slice();
+        let i = outs.findIndex(o => o.addr === d.inAddr && Math.abs(o.btc - d.btc) < 1e-8);
+        if (i < 0) i = outs.findIndex(o => o.addr === d.inAddr);
+        if (i < 0) return '';                         // cannot tell which output continues
+        outs.splice(i, 1);
+        if (!outs.length) return row('Side outputs', 'none');
+
+        outs.sort((a, b) => b.btc - a.btc);
+        const sum = outs.reduce((s, o) => s + o.btc, 0);
+        const peelPct = (sum / (sum + d.btc) * 100).toFixed(1);
+        const sh = s => s && s.length > 22 ? s.slice(0, 8) + '…' + s.slice(-6) : s;
+        const lines = outs.slice(0, 3).map(o =>
+            `₿ ${o.btc.toFixed(4)} · <span data-full="${o.addr}">${sh(o.addr)}</span>`).join('<br>');
+        const more = outs.length > 3 ? `<br>+${outs.length - 3} more` : '';
+        return row('Side outputs', `${outs.length} · ₿ ${sum.toFixed(4)} (${peelPct}% of tx)<br>${lines}${more}`, true);
+    }      
     _buildTooltip() {
         this.tip = d3.select("body").append("div")
             .attr("class", "ef-tooltip")
