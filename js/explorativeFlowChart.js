@@ -1355,6 +1355,7 @@ const openChain = this._overlay && this._overlay.kind === 'peel' && this._suspec
 const L = this._longSlots == null ? Infinity : this._longSlots;
 this._hiddenCount = 0;
 this._hiddenFlows = 0;
+this._totalEdges = edges.length;
 this._totalFlows = edges.reduce((s, e) => s + (e.count || 1), 0);
 nodes.forEach(n => { n._hid = 0; });
 edges.forEach(e => {
@@ -1388,19 +1389,21 @@ return keep;
         if (this.tip) this.tip.style("opacity", 0);
         this._refresh(true);
     }
-_updateHiddenChip() {
+    _updateHiddenChip() {
     const sel = document.getElementById('fp-long-mode');
     if (sel && sel.value !== this._longMode) sel.value = this._longMode;   // keep sidebar in sync
 
     let txt = '', tip = '';
     if (this._longMode === 'hide') {
-        const n = this._hiddenCount || 0, f = this._hiddenFlows || 0, T = this._totalFlows || 0;
+        const n = this._hiddenCount || 0, E = this._totalEdges || 0;
+        const f = this._hiddenFlows || 0, T = this._totalFlows || 0;
         if (this._focusKey) { txt = 'paused'; tip = 'Hiding is paused while a node is focused.'; }
-        else if (f === 0) { txt = 'none hidden'; tip = 'No edge is longer than N nodes.'; }
+        else if (n === 0) { txt = 'none hidden'; tip = 'No edge is longer than N nodes.'; }
         else {
-            txt = `${f} / ${T} hidden`;
-tip = `${f} of ${T} flows in the current view are hidden` +
-                  (this.singleMode ? '.' : ` (${n} merged edge${n === 1 ? '' : 's'}).`);
+            txt = `${n} / ${E} edges hidden`;
+            tip = this.singleMode
+                ? `${n} of ${E} edges are hidden (in this view each edge is one flow).`
+                : `${n} of ${E} merged edges are hidden. They hold ${f} of ${T} flows.`;
         }
     }
     d3.select("#fp-long-count").text(txt).attr("title", tip);

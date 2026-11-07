@@ -382,8 +382,8 @@ function fpApply(animate) {
     <input type="range" id="fp-edge-slider" min="0" max="500" value="0" style="width:100%" />
 </div>
 <div class="fp-section" id="fp-long-section" title="Display only: does not affect chain detection (Heuristics). Default N = number of nodes visible on screen.">
-    <div class="fp-lbl">Edge Display
-        <span id="fp-long-count" style="margin-left:auto;color:var(--orange);font-weight:600;text-transform:none;letter-spacing:0;white-space:nowrap"></span></div>
+    <div class="fp-lbl">Edges <span style="text-transform:none;letter-spacing:0;font-weight:400;font-style:italic;font-size:9px">(display only)</span>
+        <span id="fp-long-count" style="margin-left:auto;color:var(--orange);font-weight:600;font-size:10px;text-transform:none;letter-spacing:0;white-space:nowrap"></span></div>
     <div class="fp-check-row" style="flex-wrap:nowrap;gap:5px">
         <select id="fp-long-mode" style="flex:0 0 auto">
             <option value="hide">Hide</option>
