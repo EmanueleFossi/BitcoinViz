@@ -2680,7 +2680,7 @@ const wantX = this.margin.left + 30;   // small number = closer to the left edge
         if (fl.dominant) tags.push('dominant flow');
         if (fl.repeatedAddrFlows.length) tags.push('repeated address');
         return `
-            <div style="font-weight:700;color:${hlColor || '#EC4899'};margin-bottom:5px">${d.count} merged flow${d.count === 1 ? '' : 's'} · ₿ ${d.btc.toFixed(4)}</div>
+            <div style="font-weight:700;color:${hlColor || '#EC4899'};margin-bottom:5px">${d.count} aggregated flow${d.count === 1 ? '' : 's'} · ₿ ${d.btc.toFixed(4)}</div>
             <div style="margin-bottom:2px;font-size:10px;color:#555">${this._nodeLabelFull(d.fromNode)} → ${this._nodeLabelFull(d.toNode)}</div>
             <div style="margin-bottom:2px;font-size:10px;color:#555">Largest single flow: <b style="color:#1a1a1a">₿ ${largest.toFixed(4)}</b></div>
             ${tags.length ? `<div style="font-size:10px;color:#92610a;margin-bottom:2px">${tags.join(' · ')}</div>` : ''}
