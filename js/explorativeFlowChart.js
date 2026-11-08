@@ -824,9 +824,13 @@ const singleMode = this._chainOverlayActive() || this.filteredLevels.hour.length
 
         let edges = [...agg.values(), ...single];
         // Minimum merged-edge volume applies to merged (blue) edges only.
-        if (thr > 0) edges = edges.filter(e => !e.isAggregated || e.btc >= thr);
-                edges.forEach(e => {
-            const c = e.count || 1;
+// Optional: show only aggregated edges that hold 2+ flows (TAF only; ITOF edges are never touched).
+// Minimum merged-edge volume applies to merged (blue) edges only.
+if (thr > 0) edges = edges.filter(e => !e.isAggregated || e.btc >= thr);
+// Optional: show only aggregated edges that hold 2+ flows (TAF only; ITOF edges are never touched).
+if (this._minEdgeFlows > 1) edges = edges.filter(e => !e.isAggregated || e.count >= this._minEdgeFlows);
+edges.forEach(e => {
+                const c = e.count || 1;
             e.fromNode.flows += c;
             e.toNode.flows += c;
         });
@@ -1092,7 +1096,9 @@ const far = info;
         const maxH = this._halfH;
                const FOCUS = !!this._focusKey;
         // Long edges hidden -> the freed height goes to the remaining edges.
-        const ROOMY = !FOCUS && this._longMode === 'hide';
+// TAF views (day / 12h / 6h / mixed) always use the roomy curve style, so Hide and Show look the same.
+// ITOF (1-hour) keeps its current rule, so it behaves exactly as you tested.
+const ROOMY = !FOCUS && (this._longMode === 'hide' || !this.singleMode);
 const ASPECT = ROOMY ? 1.0 : 0.45, GAP = FOCUS ? 8 : ROOMY ? 10 : 4, FLOOR = 14, LOCAL_FLOOR = 8;
 const CAP = FOCUS ? [40, 50, 60] : ROOMY ? [0.35 * maxH, 0.5 * maxH, 0.7 * maxH] : [22, 28, 34];
 const smax = this._smax || 1;
@@ -1251,7 +1257,12 @@ const inp = d3.select("#fp-long-input");
     if (!inp.empty()) inp.property("value", this._longSlots);
     this._refresh(false);
 }
-
+_setMinEdgeFlows(v) {
+    this._minEdgeFlows = v;
+    this._dropSelectionState();
+    if (this.tip) this.tip.style("opacity", 0);
+    this._refresh(true);
+}
 // ── Long edges: show or hide ──
     _setLongMode(mode, slots) {
         if (mode) this._longMode = mode;
@@ -2340,8 +2351,10 @@ return `<div style="font-size:10px;color:#92610a;margin-top:4px">${n._same.lengt
         const total = this._suspects ? this._suspects.length : 0;
         const hops = this._hopsForSpark();
         const merged = this._overlay && this._overlay.kind === 'single' ? this._overlay.arcs[0] : null;
-        host.html("");
+        const wasHidden = hostNode.style.display === 'none';
+host.html("");
         if (!total && !hops && !merged) { host.style("display", "none"); this._hopsRef = null; return; }
+        if (wasHidden) setTimeout(() => hostNode.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 60);
         host.style("display", "block")
             .style("margin", "10px 0 70px").style("padding", "10px 12px")   // 70px bottom: keeps the last line clear of the Apply button
             .style("border", "1px solid var(--border)").style("border-radius", "8px")
@@ -2518,25 +2531,22 @@ row2.append("span").text("Sparkline chart");
             </div>`;
         }).join('');
 
-        const flagLines = [];
-        if (flags.dominant) flagLines.push(`One flow is <b>${(flags.dominant.pct * 100).toFixed(0)}%</b> of the volume`);
-        if (flags.selfLoops.length) flagLines.push(`<b>${flags.selfLoops.length}</b> self-loop`);
-        if (flags.globalOutliers.length) flagLines.push(`<b>${flags.globalOutliers.length}</b> in the top 1% of amounts`);
-        if (flags.repeatedAddrFlows.length) flagLines.push(`<b>${new Set(flags.repeatedAddrFlows.map(f => f.addr)).size}</b> repeated address(es)`);
-
+        
+const chips = [];
+if (flags.dominant) chips.push(badge(`dominant ${(flags.dominant.pct * 100).toFixed(0)}%`, '#6366F1'));
+if (flags.selfLoops.length) chips.push(badge(`${flags.selfLoops.length} self-loop`, '#A855F7'));
+if (flags.globalOutliers.length) chips.push(badge(`${flags.globalOutliers.length} top 1%`, '#EF4444'));
+if (flags.repeatedAddrFlows.length) chips.push(badge('repeated addr', '#06B6D4'));
         const matched = this._getMatchedStats(arc);
         const box = host.append("div").attr("class", "ef-side-hops")
             .style("max-height", "55vh").style("overflow-y", "auto").style("font-size", "10px").style("color", "#555");
         box.html(`
-            <div style="color:#888;font-size:9px;margin-bottom:4px">${this._nodeLabelFull(arc.fromNode)} → ${this._nodeLabelFull(arc.toNode)}</div>
-            <div style="margin-bottom:3px">Combined: <b style="color:#1a1a1a">₿ ${arc.btc.toFixed(4)}</b></div>
-            <div style="margin-bottom:6px;font-size:9px">Largest <b>₿${maxF.toFixed(4)}</b> · Smallest <b>₿${minF.toFixed(4)}</b></div>
-            ${matched ? `<div style="margin-bottom:6px;padding:4px 6px;background:#8B5CF614;border:1px solid #8B5CF655;border-radius:4px;font-size:9px">Searched address share: ₿ ${matched.btc.toFixed(4)} (${matched.count} of ${arc.count})</div>` : ''}
-            <div style="margin-bottom:6px;padding:5px 7px;background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.08);border-radius:5px;font-size:9px;line-height:1.7">
-                ${flagLines.length ? flagLines.join('<br>') : 'No self-loop, dominant, repeated-address or top-1% flow.'}
-            </div>
-            <div style="color:#888;font-size:9px;margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Merged transactions (${flows.length})</div>
-            ${rows}`);
+    <div style="font-size:16px;font-weight:700;color:#F7931A;line-height:1.1">₿ ${arc.btc.toFixed(4)}</div>
+    <div style="color:#64748b;font-size:9px;margin:2px 0 6px">${this._nodeLabelShort(arc.fromNode)} → ${this._nodeLabelShort(arc.toNode)}</div>
+    ${flows.length > 1 ? `<div style="font-size:9px;margin-bottom:6px">${flows.length} flows · largest <b>₿${maxF.toFixed(4)}</b> · smallest <b>₿${minF.toFixed(4)}</b></div>` : ''}
+    ${matched ? `<div style="margin-bottom:6px;padding:3px 6px;background:#8B5CF614;border:1px solid #8B5CF655;border-radius:4px;font-size:9px">Searched address: ₿ ${matched.btc.toFixed(4)} (${matched.count} of ${arc.count})</div>` : ''}
+    ${chips.length ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px">${chips.join('')}</div>` : ''}
+    ${rows}`);
         box.selectAll(".ef-copy-btn").on("click", function () {
             const val = this.getAttribute("data-copy");
             navigator.clipboard.writeText(val).then(() => {
