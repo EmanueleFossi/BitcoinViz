@@ -1411,10 +1411,10 @@ return keep;
         if (this._focusKey) { txt = 'paused'; tip = 'Hiding is paused while a node is focused.'; }
         else if (n === 0) { txt = 'none hidden'; tip = 'No edge is longer than N nodes.'; }
         else {
-            txt = `${n} / ${E} edges hidden`;
+txt = `${n} / ${E} hidden`;
             tip = this.singleMode
                 ? `${n} of ${E} edges are hidden (in this view each edge is one flow).`
-                : `${n} of ${E} merged edges are hidden. They hold ${f} of ${T} flows.`;
+                : `${n} of ${E} TAF edges are hidden. They hold ${f} of ${T} flows.`;
         }
     }
     d3.select("#fp-long-count").text(txt).attr("title", tip);
@@ -2680,7 +2680,7 @@ const wantX = this.margin.left + 30;   // small number = closer to the left edge
         if (fl.dominant) tags.push('dominant flow');
         if (fl.repeatedAddrFlows.length) tags.push('repeated address');
         return `
-            <div style="font-weight:700;color:${hlColor || '#EC4899'};margin-bottom:5px">${d.count} aggregated flow${d.count === 1 ? '' : 's'} · ₿ ${d.btc.toFixed(4)}</div>
+            <div style="font-weight:700;color:${hlColor || '#EC4899'};margin-bottom:5px">${d.count} flow${d.count === 1 ? '' : 's'} · ₿ ${d.btc.toFixed(4)}</div>
             <div style="margin-bottom:2px;font-size:10px;color:#555">${this._nodeLabelFull(d.fromNode)} → ${this._nodeLabelFull(d.toNode)}</div>
             <div style="margin-bottom:2px;font-size:10px;color:#555">Largest single flow: <b style="color:#1a1a1a">₿ ${largest.toFixed(4)}</b></div>
             ${tags.length ? `<div style="font-size:10px;color:#92610a;margin-bottom:2px">${tags.join(' · ')}</div>` : ''}

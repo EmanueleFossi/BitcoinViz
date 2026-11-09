@@ -65,7 +65,9 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
             .style("position", "relative")
                     .html(`
               <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;white-space:nowrap">
-<span title="Aggregated edge: 2 or more flows between the same two nodes"><b style="color:#265F91">●</b> Aggregated (2+)</span>    <span title="Aggregated edge that holds exactly one flow"><svg width="18" height="8" style="vertical-align:middle"><line x1="0" y1="4" x2="18" y2="4" stroke="#265F91" stroke-width="2" stroke-dasharray="4,2.5"/></svg> Aggregated (1)</span>    <span title="One transaction output (1-hour view)"><b style="color:#2F9E44">●</b> Single output</span>
+<span title="TAF edge with 2 or more flows between the same two windows"><b style="color:#265F91">●</b> TAF · 2+ flows</span>
+<span title="TAF edge with exactly one flow (shade still shows the BTC)"><svg width="18" height="8" style="vertical-align:middle"><line x1="0" y1="4" x2="18" y2="4" stroke="#265F91" stroke-width="2" stroke-dasharray="4,2.5"/></svg> TAF · 1 flow</span>
+<span title="ITOF edge: one transaction output (1-hour windows)"><b style="color:#2F9E44">●</b> ITOF</span>
     <span title="The chain or edge you clicked"><b style="color:#EC4899">●</b> Selected flow </span>
     <span title="Matches the system's peeling-chain rules"><b style="color:#F59E0B">●</b> Suspicious chain</span>
     <span id="ef-amount-slot" style="display:inline-flex;align-items:center;gap:6px;padding-left:16px;border-left:1px solid #ddd"></span>
@@ -87,7 +89,7 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
         <ul>
 <li>Each <b>node</b> is a time window (day, 12 h, 6 h or 1 h).  All times are UTC.</li>
 <li>Each <b>edge</b> is BTC that moved from one window to a later one.</li>
-<li><b style="color:#2F9E44">Green</b> edge = one output that was later spent (1-hour windows). <b style="color:#265F91">Blue</b> edge = several such outputs aggregated between the same two nodes. A <b>dashed</b> blue edge is an aggregated edge that holds only one flow.</li>
+<li><b style="color:#2F9E44">Green</b> edge = one output that was later spent (1-hour windows). <b style="color:#265F91">Blue</b> edge (TAF) = all flows between the same two windows. <b>Solid</b> = 2 or more flows, <b>dashed</b> = exactly one flow.</li>
             <li>A <b>hop</b> is one link of a chain: an output spent as an input of the next transaction.</li>
             <li><b>ITOF Graph</b> = Individual Transaction Output Flow graph: every edge is one transaction output (1-hour windows).</li>
 <li><b>TAF Graph</b> = Transaction Aggregated Flow graph: all transaction outputs that start in the same node and end in the same node are aggregated into one edge.</li>
@@ -102,8 +104,7 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
             <li><b>Scroll</b>  to open or close all windows one step (day, 12 h, 6 h, 1 h).</li>
             <li><b>Click a node</b> to open only that window. <b>Click a box label</b> to close it. <b>Drag</b> to pan.</li>
 <li>The <b>timeline overview</b> on top shows every day. Drag its orange box to move along the timeline. "Collapse all" goes back to days, "Expand all" opens everything to hours.</li>
-<li><b>Long edges</b> (left panel, Frontend Filters): hide edges spanning &gt; N nodes. The hidden count is shown in the left panel. Display only; chain detection is not affected.</li>
-</ul>
+<li><b>Long edges</b> (left panel): hide edges spanning &gt; N nodes, in both views. The hidden count is shown beside it. Display only; chain detection is not affected.</li></ul>
 </details>
 
     <details>
@@ -285,11 +286,16 @@ function fpApply(animate) {
     d3.select("head").append("style").attr("id", "frontend-filters-style").html(`
 .fp-section { display:flex; flex-direction:column; gap:3px; padding:4px 0; }
             .fp-section + .fp-section { border-top:1px solid var(--border-inner); }
-            .fp-lbl {
-                font-size:10px; font-weight:600; color:var(--text-hint);
-                text-transform:uppercase; letter-spacing:0.07em;
-                display:flex; align-items:center; gap:6px;
-            }
+           .fp-lbl {
+    font-size:11px; font-weight:600; color:var(--text-primary);
+    display:flex; align-items:center; gap:6px;
+}
+.fp-val { margin-left:auto; color:var(--orange); font-weight:600; font-size:10px; white-space:nowrap; }
+.fp-note { font-weight:400; font-size:9px; color:var(--text-hint); }
+.fp-group { margin-top:6px; padding:6px 8px 4px; background:#f8fafc; border:1px solid var(--border-inner); border-radius:8px; }
+.fp-group-head { font-size:9px; font-weight:700; color:var(--text-hint); letter-spacing:0.04em; margin-bottom:2px; }
+.fp-group .fp-section + .fp-section { border-top:none; }
+.fp-check-row select { height:26px; min-width:78px; }
             .fp-hint { font-size:10px; color:var(--text-hint); margin-top:2px; line-height:1.4; }
             .fp-input-wrap { display:flex; gap:6px; }
             .fp-input-wrap input[type="text"] {
@@ -361,11 +367,12 @@ function fpApply(animate) {
                 background: #fafafa;
             }
                 
+                
     `);
 
-      exploreContainer.html(`
+exploreContainer.html(`
 <div class="fp-section">
-<div class="fp-lbl">Temporal Gap (Hours)</div>
+    <div class="fp-lbl">Temporal gap (hours)</div>
     <div class="fp-check-row">
         <input type="checkbox" id="fp-mingap-enabled" />
         <input type="number" id="fp-mingap-input" placeholder="min e.g. 1" min="0" />
@@ -374,35 +381,38 @@ function fpApply(animate) {
     </div>
 </div>
 <div class="fp-section">
-<div class="fp-lbl">Min Single Flow Value (BTC)
-    <span id="fp-btc-label" style="margin-left:auto;color:var(--orange);font-weight:600;text-transform:none;letter-spacing:0">0 BTC</span></div>
+    <div class="fp-lbl">Min single flow value (BTC)
+        <span id="fp-btc-label" class="fp-val">0 BTC</span></div>
     <input type="range" id="fp-btc-slider" min="0" max="500" value="0" style="width:100%" />
 </div>
-<div class="fp-section" id="fp-edge-section" title="Blue (merged) edges only. Has an effect only above the minimum single flow value.">
-<div class="fp-lbl">Min Merged-Edge Volume (BTC)
-    <span id="fp-edge-label" style="margin-left:auto;color:var(--orange);font-weight:600;text-transform:none;letter-spacing:0">0 BTC</span></div>
-    <input type="range" id="fp-edge-slider" min="0" max="500" value="0" style="width:100%" />
-</div>
-<div class="fp-section" id="fp-display-section">
-    <div class="fp-check-row" id="fp-kind-section" style="flex-wrap:nowrap;justify-content:space-between" title="Aggregated (blue) edges only. Not used in the ITOF Graph View.">
-        <span class="fp-lbl">Aggregated edges</span>
-        <select id="fp-kind" style="font-size:10px;padding:2px 4px;border:1px solid var(--border);border-radius:5px;background:#fafafa">
-            <option value="1">All</option>
-            <option value="2">2+ flows</option>
-        </select>
-    </div>
-    <div class="fp-lbl">Edges <i style="text-transform:none;letter-spacing:0;font-weight:400;font-size:9px">(display only)</i>
-        <span id="fp-long-count" style="margin-left:auto;color:var(--orange);font-weight:600;font-size:10px;text-transform:none;letter-spacing:0;white-space:nowrap"></span></div>
-    <div class="fp-check-row" style="flex-wrap:nowrap;gap:5px" title="Display only: does not affect chain detection. Default N = number of nodes visible on screen.">
-        <select id="fp-long-mode" style="flex:0 0 auto"><option value="hide">Hide</option><option value="show">Show</option></select>
-        <span class="fp-mini">long edges &gt;</span>
+<div class="fp-section" title="Display only: does not affect chain detection. Default N = number of nodes visible on screen.">
+    <div class="fp-lbl">Long edges <i class="fp-note">(display only)</i>
+        <span id="fp-long-count" class="fp-val"></span></div>
+    <div class="fp-check-row" style="flex-wrap:nowrap;gap:5px">
+        <select id="fp-long-mode"><option value="hide">Hide</option><option value="show">Show</option></select>
+        <span class="fp-mini">edges &gt;</span>
         <input type="number" id="fp-long-input" min="2" max="200" style="flex:0 0 48px;width:48px;min-width:0" />
         <span class="fp-mini">nodes</span>
     </div>
 </div>
-
-
-        `);
+<div class="fp-group" id="fp-edge-section" title="TAF view only">
+    <div class="fp-group-head">TAF view only</div>
+    <div class="fp-section">
+        <div class="fp-lbl">Min edge volume (BTC)
+            <span id="fp-edge-label" class="fp-val">0 BTC</span></div>
+        <input type="range" id="fp-edge-slider" min="0" max="500" value="0" style="width:100%" />
+    </div>
+    <div class="fp-section" id="fp-kind-section">
+        <div class="fp-check-row" style="flex-wrap:nowrap;justify-content:space-between">
+            <span class="fp-lbl">Show edges</span>
+            <select id="fp-kind">
+                <option value="1">All</option>
+                <option value="2">2+ flows</option>
+            </select>
+        </div>
+    </div>
+</div>
+`);
 
          peelContainer.html(`
 <div class="fp-peel-box">
@@ -443,16 +453,13 @@ function fpApply(animate) {
         document.getElementById('fp-edge-label').textContent = `${(+this.value).toFixed(0)} BTC`;
         chart.update(0, false);
     });
-        chart.onModeChange = (single) => {
-        edgeSlider.disabled = single;
-        document.getElementById('fp-kind').disabled = single;
-document.getElementById('fp-kind-section').style.opacity = single ? 0.45 : 1;
-        const sec = document.getElementById('fp-edge-section');
-        sec.style.opacity = single ? 0.45 : 1;
-        sec.title = single
-            ? 'Not used in the ITOF Graph View.'
-            : 'Blue (merged) edges only. Has an effect only above the minimum single flow value.';
-    };
+    chart.onModeChange = (single) => {
+    edgeSlider.disabled = single;
+    document.getElementById('fp-kind').disabled = single;
+    const g = document.getElementById('fp-edge-section');
+    g.style.opacity = single ? 0.45 : 1;
+    g.title = single ? 'TAF view only. Not used in the ITOF view.' : 'TAF view only';
+};
     chart.onModeChange(chart.singleMode);
     document.getElementById('fp-hl-btn').addEventListener('click', () => fpAddTag('hl'));
     document.getElementById('fp-hl-input').addEventListener('keydown', e => { if (e.key === 'Enter') fpAddTag('hl'); });
