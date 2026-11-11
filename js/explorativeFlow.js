@@ -92,7 +92,7 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
 <li><b style="color:#2F9E44">Green</b> edge = one output that was later spent (1-hour windows). <b style="color:#265F91">Blue</b> edge (TAF) = all flows between the same two windows. <b>Solid</b> = 2 or more flows, <b>dashed</b> = exactly one flow.</li>
             <li>A <b>hop</b> is one link of a chain: an output spent as an input of the next transaction.</li>
             <li><b>ITOF Graph</b> = Individual Transaction Output Flow graph: every edge is one transaction output (1-hour windows).</li>
-<li><b>TAF Graph</b> = Transaction Aggregated Flow graph: all transaction outputs that start in the same node and end in the same node are aggregated into one edge.</li>
+<li><b>TAF Graph</b> = Temporal Aggregated Flow graph: all transaction outputs that start in the same node and end in the same node are aggregated into one edge.</li>
    
         </ul>
         
@@ -112,7 +112,7 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
         <ul>
             <li><b>Hover</b> an edge: amount, time, transaction, main output and how long it waited before being spent.</li>
             <li><b>Click a green edge</b>: its whole chain turns <b style="color:#EC4899">pink</b>. Click empty space to step back.</li>
-            <li><b>Click a blue edge</b>: it turns pink. Press <b>Details</b> in the left panel for the merged transactions.</li>
+            <li><b>Click a blue edge</b>: it turns pink. Press <b>Details</b> in the left panel for the flows in that edge.</li>
             <li><b>Click an hour node</b> (or Shift+click any node) to focus on its edges only. Esc exits.</li>
         </ul>
     </details>
@@ -132,7 +132,7 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
         <summary>5 · Amounts, flags, search, filters</summary>
         <ul>
 <li><b>Shade</b> = BTC of an edge: darker = more BTC, in 4 ranges on a log scale (each range is about 6× wider than the one before). The legend at the bottom lists each range. <b>Thickness</b> is used only while a chain is open: the thinnest edge has less BTC, the thickest has more BTC.</li>
-            <li>Flags on merged edges: <b>self-loop</b> (money returns to the same address), <b>dominant</b> (one transaction is 70%+), <b>repeated address</b>, <b>top 1%</b> amount.</li>
+            <li>Flags on TAF edges: <b>self-loop</b> (money returns to the same address), <b>dominant</b> (one transaction is 70%+), <b>repeated address</b>, <b>top 1%</b> amount.</li>
             <li><b>Search</b> an address (top): it gets its own colour on matching flows.</li>
         </ul>
     </details>

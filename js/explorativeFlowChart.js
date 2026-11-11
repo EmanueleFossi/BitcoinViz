@@ -240,6 +240,16 @@ this.container.selectAll("svg, .ef-hint, .ef-reset, .ef-focus, .ef-long, .ef-top
         const spentOutputs = new Set();
         this.linkMap = new Map();     // "spendHash|inAddr" -> origin {hash,time,btc,uncertain}
         this.nextHopMap = new Map();  // originHash -> {spendHash, addr}
+                // single-input spends per address: used to check that an output was not already spent exactly
+        const singleSpends = new Map();
+        sortedTx.forEach(t => {
+            if (t.tx_inputs === 1 && t.btc_in > 0) t.in_addresses.forEach(a => {
+                if (!singleSpends.has(a)) singleSpends.set(a, []);
+                singleSpends.get(a).push({ hash: t.hash, time: t.time, btc: t.btc_in });
+            });
+        });
+        const spentExactly = (addr, o) => (singleSpends.get(addr) || []).some(s =>
+            s.hash !== o.hash && s.time >= o.time && Math.abs(s.btc - o.btc) <= Math.max(1e-6, o.btc * 1e-6));
 
         sortedTx.forEach(tx => {
             tx.in_addresses.forEach(inAddr => {
@@ -258,10 +268,10 @@ let valid = candidates.filter(o =>
                     else {
                         // No exact match: a small transaction in between may not be in the loaded data.
                         // Accept the latest earlier output on this address that is bigger, but by at most 2%.
-const near = valid.filter(o => o.btc > tx.btc_in && tx.btc_in >= o.btc * 0.98);
-                        near.sort((a, b) => b.time - a.time);
-                        valid = near.length ? [near[0]] : [];
-                        bridged = near.length > 0;
+const near = valid.filter(o => o.btc > tx.btc_in && tx.btc_in >= o.btc * 0.98
+                            && o.time < tx.time && !spentExactly(inAddr, o));
+                        valid = near.length === 1 ? near : [];   // two or more candidates = no link
+                        bridged = near.length === 1;
                     }
                 }
                 if (!valid.length) return;
@@ -1134,7 +1144,10 @@ g.step = Math.max(1.5, Math.min(FOCUS ? 8 : ROOMY ? 6 : 4, 0.35 * maxH / n));
 let sky = new Array(nGaps).fill(0);
 
 // Hide mode: height depends on distance. Near edges get lots of room, far edges share the top.
-const maxD = Math.max(1, d3.max(list, g => g.hi - g.lo) || 1);
+// Scale against a fixed reference (visible nodes, capped by the long-edge limit), not the longest
+// remaining edge, so filtered views with only short edges do not get huge arches.
+const refD = Math.min(nodes.length - 1, this._longSlots || Infinity);
+const maxD = Math.max(1, refD, d3.max(list, g => g.hi - g.lo) || 1);
 const NEAR_POWER = 2.2;   // bigger = even more room for near edges
 const nearBase = g => {
     const t = Math.min(1, (g.hi - g.lo) / maxD);
@@ -1259,7 +1272,7 @@ const inp = d3.select("#fp-long-input");
 }
 _setMinEdgeFlows(v) {
     this._minEdgeFlows = v;
-    this._dropSelectionState();
+    this._dropSelectionKeepView();
     if (this.tip) this.tip.style("opacity", 0);
     this._refresh(true);
 }
@@ -1267,7 +1280,7 @@ _setMinEdgeFlows(v) {
     _setLongMode(mode, slots) {
         if (mode) this._longMode = mode;
 if (slots) this._longSlots = slots;
-        this._dropSelectionState();
+this._dropSelectionKeepView();
         if (this.tip) this.tip.style("opacity", 0);
         this._refresh(true);
     }
@@ -1388,7 +1401,7 @@ return keep;
     _focusOnNode(node) {
         if (!node) return;
         if (this._focusKey === node.key) { this._clearFocus(); return; }
-        this._dropSelectionState();
+this._dropSelectionKeepView();
         if (this.tip) this.tip.style("opacity", 0);
         this._focusKey = node.key;
         this._refresh(true);
@@ -1555,7 +1568,7 @@ const arcsBot = arcs.filter(a => (a._side || 1) === -1).sort((a, b) => a.btc - b
                                             self._showTooltip(event, d);
                 })
                 .on("mousemove", function (event) {
-                    self.tip.style("left", (event.clientX + 15) + "px").style("top", (event.clientY - 15) + "px");
+self._moveTip(event);
                 })
                 .on("mouseleave", function (event, d) {
                     if (self.selectedArc) return;
@@ -1685,7 +1698,7 @@ const MIN_LABEL = { day: 34, '12h': 32, '6h': 30, hour: 26 };
                                 self._focusNode(d);
             })
             .on("mousemove", function (event) {
-                self.tip.style("left", (event.clientX + 15) + "px").style("top", (event.clientY - 15) + "px");
+self._moveTip(event);
             })
             .on("mouseleave", function () {
                 d3.select(this).select(".ef-dot").attr("r", self.NODE_R);
@@ -1841,7 +1854,7 @@ const curKey = ov.kind !== 'suspects' ? (this._hopKey || null) : (this._suspectV
                 self._showTooltip(event, d);
             })
             .on("mousemove", function (event) {
-                self.tip.style("left", (event.clientX + 15) + "px").style("top", (event.clientY - 15) + "px");
+self._moveTip(event);
             })
             .on("mouseleave", function (event, d) {
                 self.gChain.selectAll("path.chain-arc").attr("opacity", 1);
@@ -2009,7 +2022,15 @@ this._renderSparkPanel();
         }
         this._refresh(true);
     }
-
+    // Drop the highlight but stay in the view the user had before it (ITOF stays ITOF)
+    _dropSelectionKeepView() {
+        const saved = this._preOverlayState;
+        this._dropSelectionState();
+        if (saved) {
+            this.overrides = saved.overrides;
+            this._applyAutoLevel(saved.autoLevel);
+        }
+    }
     _expandNode(node) {
         if (!node || node.level === 'hour') return;
         const screenX = this.zoomT.applyX(node.bx);
@@ -2072,8 +2093,13 @@ this._renderSparkPanel();
         this._overlay = ov;
         this.gHitTop.style("pointer-events", "none");
         this.gHitBot.style("pointer-events", "none");
-        if (flowArcs.length) this._expandToHours(flowArcs);
-        this._refresh(true);
+        if (flowArcs.length) {
+            // close every window, then open only the ones the chain starts or ends in
+            this.overrides.clear();
+            this._applyAutoLevel(0);
+            this._expandToHours(flowArcs);
+        }
+                this._refresh(true);
 if (!ov.keepView) this._alignLeft(ov.focusArc || ov.arcs[0]);
         this._renderSparkPanel();
         }
@@ -2310,14 +2336,48 @@ this._hiddenHops = c.arcs.map((h, i) => ({ ...h, n: i + 1 }))
             <div style="font-size:9px;color:#888">Click to show the chain</div>`;
     }
     // Amounts of the hops that have no arc (inside one hour), shown when hovering their node.
-    _sameHourHtml(n) {
-        if (!n._same || !n._same.length) return '';
-        const f = v => v >= 100 ? v.toFixed(1) : v.toFixed(3);
-const list = n._same.slice(0, 8).map(h => `hop ${h.n}: ₿ ${f(h.btc)}`).join('<br>');
-return `<div style="font-size:10px;color:#92610a;margin-top:4px">${n._same.length} hop${n._same.length === 1 ? '' : 's'} received and spent inside this window (no edge):<br>${list}${n._same.length > 8 ? '<br>…' : ''}</div>`;
-    }
-
     // ── "Amounts per hop": the sparkline, only on request ──
+       _sameHourHtml(n) {
+        if (!n._same || !n._same.length) return '';
+        const f = v => v >= 100 ? v.toFixed(1) : v.toFixed(4);
+        const fT = d3.utcFormat("%d %b %Y, %H:%M:%S UTC");
+        const tf = t => this._timeWithLocal ? this._timeWithLocal(t) : fT(t);
+        const sh = s => s && s.length > 22 ? s.slice(0, 10) + '…' + s.slice(-8) : (s || '—');
+        const sh2 = s => s && s.length > 16 ? s.slice(0, 6) + '…' + s.slice(-6) : (s || '—');
+        const row = (t, v, mono) => `<div style="display:flex;gap:8px;margin-bottom:2px;font-size:10px;color:#333">
+            <span style="flex:0 0 76px;color:#888;user-select:none">${t}</span>
+            <span style="flex:1;min-width:0;word-break:break-all;${mono ? 'font-family:monospace;' : ''}">${v}</span></div>`;
+
+        const blocks = n._same.map(h => {
+            const txF = this.txMap.get(h.hashFrom), txT = this.txMap.get(h.hashTo);
+            let gapStr = null;
+            if (txF && txT) {
+                const mins = (txT.time - txF.time) / 60000;
+                gapStr = mins <= 0 ? 'same block (same timestamp)'
+                    : mins < 1 ? `${Math.round(mins * 60)} s`
+                    : mins < 60 ? `${mins.toFixed(1)} min` : `${(mins / 60).toFixed(1)} h`;
+            }
+            const d = { hashFrom: h.hashFrom, inAddr: h.addr, btc: h.btc };
+            return `<details style="border-top:1px solid rgba(0,0,0,0.08);padding:3px 0">
+                <summary style="cursor:pointer;font-size:10px;color:#92610a;font-weight:700;white-space:nowrap">hop ${h.n} · ₿ ${f(h.btc)} <span style="font-weight:400;color:#555;font-family:monospace">· ${sh2(h.addr)}</span></summary>
+                <div style="padding:4px 0 2px 10px">
+                    ${txF ? row('Time', tf(txF.time)) : ''}
+                    ${row('TX hash', `<span data-full="${h.hashFrom}">${sh(h.hashFrom)}</span>`, true)}
+                    ${row('Spent address', `<span data-full="${h.addr}">${sh(h.addr)}</span>`, true)}
+                    ${gapStr ? row('Spent after', gapStr) : ''}
+                    ${this._sideOutputsHtml(d, row)}
+                </div>
+            </details>`;
+        }).join('');
+
+        return `<div style="margin-top:6px;max-width:340px">
+            <div style="font-size:10px;color:#92610a;margin-bottom:1px">${n._same.length} hop${n._same.length === 1 ? '' : 's'} received and spent inside this window (no edge)</div>
+            <div class="ef-pin-hint" style="font-size:9px;color:#888;margin-bottom:3px">Press <b>P</b> to pin · then click a hop to open its details</div>
+<div class="ef-hop-list" style="max-height:190px;overflow-y:auto">${blocks}</div>
+        </div>`;
+    }
+   
+   
     _hopsForSpark() {
         const k = this._overlay && this._overlay.kind;
         if (k === 'peel') return this._sparklineHops;
@@ -2611,49 +2671,87 @@ const wantX = this.margin.left + 30;   // small number = closer to the left edge
         const node = this.tip.node();
         const r = node.getBoundingClientRect();
         this._unpinTip();
+        const maxH = window.innerHeight - 16;
         const pin = d3.select(document.body).append("div")
             .attr("class", "ef-pinned-tip")
             .style("position", "fixed")
-            .style("left", Math.min(r.left, window.innerWidth - 380) + "px")
-            .style("top", r.top + "px")
-            .style("max-width", "360px")
-            .style("background", "#ffffff").style("padding", "10px 14px")
+            .style("left", Math.max(8, Math.min(r.left, window.innerWidth - 320)) + "px")
+            .style("top", Math.max(8, Math.min(r.top, window.innerHeight - Math.min(r.height, maxH) - 8)) + "px")
+            .style("max-width", "300px").style("max-height", maxH + "px").style("overflow-y", "auto")
+            .style("background", "#ffffff").style("padding", "8px 10px")
             .style("border", "1px solid #EC4899").style("border-radius", "6px")
             .style("box-shadow", "0 4px 14px rgba(0,0,0,0.18)")
-            .style("color", "#1a1a1a").style("font-size", "11px")
+            .style("color", "#1a1a1a").style("font-size", "10px")
             .style("z-index", "1001")
             .style("pointer-events", "auto").style("user-select", "text")
             .style("cursor", "text");
         pin.html(node.innerHTML);
         pin.selectAll(".ef-pin-hint, .ef-copied").remove();
-        // show full values (hashes, addresses) instead of the shortened ones
         pin.selectAll("[data-full]").each(function () {
             this.textContent = this.getAttribute("data-full");
             this.style.wordBreak = "break-all";
         });
-        pin.insert("div", ":first-child")
+        // one scrollbar only: the hop list grows, the box scrolls
+        pin.selectAll(".ef-hop-list").style("max-height", "none").style("overflow", "visible");
+
+        const pn = pin.node();
+        const clamp = () => {
+            const b = pn.getBoundingClientRect();
+            pn.style.top = Math.max(8, Math.min(b.top, window.innerHeight - b.height - 8)) + "px";
+        };
+        // opening one hop closes the others, so the next hop's title is always visible
+        const dets = pin.selectAll("details").nodes();
+        dets.forEach(d => d.addEventListener("toggle", () => {
+            if (d.open) dets.forEach(o => { if (o !== d) o.open = false; });
+            clamp();
+        }));
+
+        // header: drag to move, ✕ to close
+        const head = pin.insert("div", ":first-child")
             .style("display", "flex").style("justify-content", "space-between")
             .style("align-items", "center").style("margin-bottom", "4px")
             .style("font-size", "9px").style("color", "#888")
-            .html(`<span>Pinned · select text and copy · Esc to close</span>`)
-            .append("button").text("✕")
+            .style("cursor", "move").style("user-select", "none")
+            .html(`<span>Pinned · drag to move · Esc to close</span>`);
+        head.append("button").text("✕")
             .style("background", "none").style("border", "none").style("cursor", "pointer")
             .style("font-size", "13px").style("color", "#555")
             .on("click", () => this._unpinTip());
+        head.on("mousedown", e => {
+            if (e.target.tagName === "BUTTON") return;
+            const b = pn.getBoundingClientRect(), dx = e.clientX - b.left, dy = e.clientY - b.top;
+            const mv = ev => {
+                pn.style.left = Math.max(0, Math.min(ev.clientX - dx, window.innerWidth - 60)) + "px";
+                pn.style.top = Math.max(0, Math.min(ev.clientY - dy, window.innerHeight - 30)) + "px";
+            };
+            const up = () => { window.removeEventListener("mousemove", mv); window.removeEventListener("mouseup", up); };
+            window.addEventListener("mousemove", mv);
+            window.addEventListener("mouseup", up);
+            e.preventDefault();
+        });
         this.tip.style("opacity", 0);
     }
-
     _unpinTip() {
         d3.selectAll(".ef-pinned-tip").remove();
     }
     // ════════════════════════════════════════════════════════════════
     //  TOOLTIPS
     // ════════════════════════════════════════════════════════════════
+        _moveTip(event) {
+        const n = this.tip.node(), w = n.offsetWidth, h = n.offsetHeight, m = 8;
+        let x = event.clientX + 15, y = event.clientY + 15;
+        if (x + w > window.innerWidth - m) x = event.clientX - w - 15;     // flip left
+        if (y + h > window.innerHeight - m) y = event.clientY - h - 15;    // flip above
+        x = Math.max(m, x);
+        y = Math.max(m, Math.min(y, window.innerHeight - h - m));
+        this.tip.style("left", x + "px").style("top", y + "px");
+    }
     _showTooltip(event, d) {
         this.tip.style("opacity", 1)
             .style("left", (event.clientX + 15) + "px")
             .style("top", (event.clientY - 15) + "px")
             .html(d.isSingle ? this._tooltipHour(d) : this._tooltipDay(d));
+                    this._moveTip(event);
     }
 
     _showNodeTip(event, n) {
@@ -2669,6 +2767,7 @@ const wantX = this.margin.left + 30;   // small number = closer to the left edge
             ${this._sameHourHtml(n)}
             ${n._hid ? `<div style="font-size:9px;color:#64748b;margin-top:2px">${n._hid} long edge${n._hid === 1 ? '' : 's'} hidden</div>` : ''}
                     `);
+                            this._moveTip(event);
     }
      _tooltipDay(d) {
         const hlColor = this._getArcHlColor(d);
@@ -2694,12 +2793,21 @@ const wantX = this.margin.left + 30;   // small number = closer to the left edge
         }
         return `TX ${pos} of ${d.chainLen}`;
     }
+        // UTC (the data's time) with the viewer's local time in small grey text, to compare with mempool.space
+    _timeWithLocal(t) {
+        const p = n => String(n).padStart(2, '0');
+        const utc = d3.utcFormat("%d %b %Y, %H:%M:%S UTC")(t);
+        const off = -t.getTimezoneOffset();
+        const a = Math.abs(off);
+        const tz = 'GMT' + (off >= 0 ? '+' : '−') + Math.floor(a / 60) + (a % 60 ? ':' + p(a % 60) : '');
+        return `${utc}<br><span style="font-size:9px;color:#888">(your local time: ${p(t.getHours())}:${p(t.getMinutes())}:${p(t.getSeconds())} ${tz})</span>`;
+    }
         _tooltipHour(d) {
         const hlColor = this._getArcHlColor(d);
 if (this._overlay && this._overlay.kind === 'suspects') return this._tooltipSuspect(d);
         const accent = hlColor || (this._overlay && this._overlay.kind === 'peel' ? '#F59E0B' : '#EC4899');
         const tx = this.txMap ? this.txMap.get(d.hashFrom) : null;
-        const timeStr = tx ? d3.utcFormat("%d %b %Y, %H:%M:%S UTC")(tx.time) : '—';
+        const timeStr = tx ? this._timeWithLocal(tx.time) : '—';
         const maxOut = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
 const outAddr = d.inAddr || (d.addresses[0] ? d.addresses[0].addr : '—');
         const sh = s => s && s.length > 22 ? s.slice(0, 10) + '…' + s.slice(-8) : s;
@@ -2727,25 +2835,24 @@ const outAddr = d.inAddr || (d.addresses[0] ? d.addresses[0].addr : '—');
             <div class="ef-pin-hint" style="font-size:9px;color:#888;margin-top:5px">Press <b>P</b> to pin this box, then select and copy text</div>`;
             }  
                 // Side outputs = every output of the origin transaction except the one that continues the chain.
-    _sideOutputsHtml(d, row) {
+     _sideOutputsHtml(d, row) {
         const tx = this.txMap ? this.txMap.get(d.hashFrom) : null;
         if (!tx) return '';
+        const head = row('Outputs in tx', String(tx.outputs.length));
         const outs = tx.outputs.slice();
         let i = outs.findIndex(o => o.addr === d.inAddr && Math.abs(o.btc - d.btc) < 1e-8);
         if (i < 0) i = outs.findIndex(o => o.addr === d.inAddr);
-        if (i < 0) return '';                         // cannot tell which output continues
+        if (i < 0) return head;                       // cannot tell which output continues
         outs.splice(i, 1);
-        if (!outs.length) return row('Side outputs', 'none');
+        if (!outs.length) return head + row('Side outputs', 'none');
 
         outs.sort((a, b) => b.btc - a.btc);
-        const sum = outs.reduce((s, o) => s + o.btc, 0);
-        const peelPct = (sum / (sum + d.btc) * 100).toFixed(1);
         const sh = s => s && s.length > 22 ? s.slice(0, 8) + '…' + s.slice(-6) : s;
         const lines = outs.slice(0, 3).map(o =>
             `₿ ${o.btc.toFixed(4)} · <span data-full="${o.addr}">${sh(o.addr)}</span>`).join('<br>');
         const more = outs.length > 3 ? `<br>+${outs.length - 3} more` : '';
-        return row('Side outputs', `${outs.length} · ₿ ${sum.toFixed(4)} (${peelPct}% of tx)<br>${lines}${more}`, true);
-    }      
+        return head + row('Side outputs', `${lines}${more}`, true);
+    }    
     _buildTooltip() {
         this.tip = d3.select("body").append("div")
             .attr("class", "ef-tooltip")
@@ -3219,7 +3326,7 @@ if ((arc && arc.isAggregated) ? !this._openMerged : !this._chainPanelShowSparkli
         this.filteredLevels.hour = this.levels.hour.filter(a => this._arcPassesFilters(a, this.activeFilters));
         this.filteredLevels.day = this.filteredLevels.hour; // legacy alias
 
-        this._dropSelectionState();
+this._dropSelectionKeepView();
 this._refresh(animate);
     }
 
