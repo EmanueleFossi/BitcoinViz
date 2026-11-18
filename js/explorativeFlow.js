@@ -65,9 +65,8 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
             .style("position", "relative")
                     .html(`
               <div style="display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;white-space:nowrap">
-<span title="TAF edge with 2 or more flows between the same two windows"><b style="color:#265F91">●</b> TAF · 2+ flows</span>
-<span title="TAF edge with exactly one flow (shade still shows the BTC)"><svg width="18" height="8" style="vertical-align:middle"><line x1="0" y1="4" x2="18" y2="4" stroke="#265F91" stroke-width="2" stroke-dasharray="4,2.5"/></svg> TAF · 1 flow</span>
-<span title="ITOF edge: one transaction output (1-hour windows)"><b style="color:#2F9E44">●</b> ITOF</span>
+<span title="One flow = one edge"><b style="color:#265F91">●</b> Individual edge</span>
+<span title="2 or more flows merged between the same two windows"><b style="color:#2F9E44">●</b> Merged edge</span>
     <span title="The chain or edge you clicked"><b style="color:#EC4899">●</b> Selected flow </span>
     <span title="Matches the system's peeling-chain rules"><b style="color:#F59E0B">●</b> Suspicious chain</span>
     <span id="ef-amount-slot" style="display:inline-flex;align-items:center;gap:6px;padding-left:16px;border-left:1px solid #ddd"></span>
@@ -89,11 +88,9 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
         <ul>
 <li>Each <b>node</b> is a time window (day, 12 h, 6 h or 1 h).  All times are UTC.</li>
 <li>Each <b>edge</b> is BTC that moved from one window to a later one.</li>
-<li><b style="color:#2F9E44">Green</b> edge = one output that was later spent (1-hour windows). <b style="color:#265F91">Blue</b> edge (TAF) = all flows between the same two windows. <b>Solid</b> = 2 or more flows, <b>dashed</b> = exactly one flow.</li>
+<li><b style="color:#265F91">Blue</b> edge = one flow (one output that was later spent). <b style="color:#2F9E44">Green</b> edge = 2 or more flows merged between the same two windows (after pressing <b>Merge edges</b>).</li>
             <li>A <b>hop</b> is one link of a chain: an output spent as an input of the next transaction.</li>
-            <li><b>ITOF Graph</b> = Individual Transaction Output Flow graph: every edge is one transaction output (1-hour windows).</li>
-<li><b>TAF Graph</b> = Temporal Aggregated Flow graph: all transaction outputs that start in the same node and end in the same node are aggregated into one edge.</li>
-   
+            <li><b>Merge edges</b> (top right) joins all flows between the same two windows to reduce clutter. Window size (24 h / 12 h / 6 h / 1 h) is a separate control.</li>
         </ul>
         
     </details>
@@ -111,9 +108,8 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
         <summary>3 · Inspect an edge</summary>
         <ul>
             <li><b>Hover</b> an edge: amount, time, transaction, main output and how long it waited before being spent.</li>
-            <li><b>Click a green edge</b>: its whole chain turns <b style="color:#EC4899">pink</b>. Click empty space to step back.</li>
-            <li><b>Click a blue edge</b>: it turns pink. Press <b>Details</b> in the left panel for the flows in that edge.</li>
-            <li><b>Click an hour node</b> (or Shift+click any node) to focus on its edges only. Esc exits.</li>
+<li><b>Click a green edge</b>: its whole chain turns <b style="color:#EC4899">pink</b>. The pink chain is always the full chain and ignores the left-panel filters. Click empty space to step back.</li>
+            <li><b>Click a GREEN edge</b>: it turns pink. Press <b>Details</b> in the left panel for the flows in that edge.</li>
         </ul>
     </details>
 
@@ -132,7 +128,8 @@ if (!cleanedRaw.length) throw new Error("No valid temporal data found in the fil
         <summary>5 · Amounts, flags, search, filters</summary>
         <ul>
 <li><b>Shade</b> = BTC of an edge: darker = more BTC, in 4 ranges on a log scale (each range is about 6× wider than the one before). The legend at the bottom lists each range. <b>Thickness</b> is used only while a chain is open: the thinnest edge has less BTC, the thickest has more BTC.</li>
-            <li>Flags on TAF edges: <b>self-loop</b> (money returns to the same address), <b>dominant</b> (one transaction is 70%+), <b>repeated address</b>, <b>top 1%</b> amount.</li>
+<li><b>Top 5 edges</b> (left panel, merged mode only): numbered dots on the 5 edges with the largest BTC flow or the longest chain after it, in the current view. They follow the window level and filters. <b>Hover</b> an edge: the bar shows its flows (width = BTC; outlined = the flow that earned the dot). Press <b>P</b> to pin.</li>
+<li><b>Details</b> (left panel, after clicking a merged edge) lists every flow, the marked one first. Each flow shows its amount, time, transaction, input and output address, and <b>Trace chain · N more hops</b> to open its full chain.<br>Badges: <b style="color:#A855F7">self-loop</b> = the spending transaction sends its largest output back to the same address; <b style="color:#EF4444">top 1%</b> = amount is in the top 1% of all flows in the data; <b style="color:#06B6D4">repeated</b> = the same input address appears in more than one flow of the edge.</li>
             <li><b>Search</b> an address (top): it gets its own colour on matching flows.</li>
         </ul>
     </details>
@@ -367,7 +364,18 @@ function fpApply(animate) {
                 background: #fafafa;
             }
                 
-                
+        .fp-section { gap:2px; padding:2px 0; }
+.fp-lbl { font-size:10px; }
+.fp-val, .fp-mini, .fp-note { font-size:9px; }
+.fp-group { margin-top:3px; padding:4px 6px 2px; }
+.fp-group-head { font-size:8px; margin-bottom:1px; }
+.fp-check-row { gap:5px; }
+.fp-check-row input[type="number"] { padding:3px 5px; font-size:10px; }
+.fp-check-row select { padding:2px 4px; font-size:9px; height:22px; min-width:70px; }
+.fp-peel-box { padding:6px; }
+.fp-retain-row { gap:4px; }
+.fp-retain-row input[type="number"] { padding:3px 4px; font-size:10px; }
+.fp-add { padding:4px 8px; }        
     `);
 
 exploreContainer.html(`
@@ -395,21 +403,14 @@ exploreContainer.html(`
         <span class="fp-mini">nodes</span>
     </div>
 </div>
-<div class="fp-group" id="fp-edge-section" title="TAF view only">
-    <div class="fp-group-head">TAF view only</div>
-    <div class="fp-section">
-        <div class="fp-lbl">Min edge volume (BTC)
-            <span id="fp-edge-label" class="fp-val">0 BTC</span></div>
-        <input type="range" id="fp-edge-slider" min="0" max="500" value="0" style="width:100%" />
-    </div>
-    <div class="fp-section" id="fp-kind-section">
-        <div class="fp-check-row" style="flex-wrap:nowrap;justify-content:space-between">
-            <span class="fp-lbl">Show edges</span>
-            <select id="fp-kind">
-                <option value="1">All</option>
-                <option value="2">2+ flows</option>
-            </select>
-        </div>
+<div class="fp-section" id="fp-mark-section">
+    <div class="fp-check-row" style="flex-wrap:nowrap;justify-content:space-between">
+        <span class="fp-lbl" title="Numbered dots on the 5 best merged edges in the current view">Top 5 edges</span>
+        <select id="fp-mark">
+            <option value="off">Off</option>
+            <option value="btc">Largest BTC flow</option>
+            <option value="hops">Longest chain</option>
+        </select>
     </div>
 </div>
 `);
@@ -422,11 +423,20 @@ exploreContainer.html(`
         <label class="fp-mini">Min hops</label>
         <input type="number" id="fp-peel-minlen-input" value="5" min="2" />
     </div>
-    <div class="fp-check-row" style="margin-top:6px">
+    <div class="fp-check-row" style="margin-top:4px">
         <input type="checkbox" id="fp-peel-decreasing" checked />
         <label for="fp-peel-decreasing" style="font-size:10px;cursor:pointer">Decreasing amount per hop</label>
     </div>
-    <button id="fp-detect-peel-btn" class="fp-add" style="width:100%;padding:6px;font-size:11px;margin-top:6px">Suggest Suspicious Chains</button>
+    <div class="fp-check-row" style="margin-top:4px">
+  <label class="fp-mini">Chain type</label>
+  <select id="fp-peel-type">
+    <option value="all">All</option>
+    <option value="new">New address only</option>
+    <option value="same">Same address only</option>
+    <option value="mixed">Mixed</option>
+  </select>
+</div>
+    <button id="fp-detect-peel-btn" class="fp-add" style="width:100%;padding:4px;font-size:10px;margin-top:4px">Suggest Suspicious Chains</button>
 </div>
     `);
        // "Chains detected / Amount per hop" card: its own box under Heuristics
@@ -438,27 +448,21 @@ exploreContainer.html(`
     if (accPeel) accPeel.insertAdjacentElement('afterend', hopHost);
     else peelContainer.node().appendChild(hopHost); 
     const flowSlider = document.getElementById('fp-btc-slider');
-    const edgeSlider = document.getElementById('fp-edge-slider');
     flowSlider.max = Math.max(1, Math.ceil(chart.maxFlowBtc || 500));
-    edgeSlider.max = Math.max(1, Math.ceil(chart.maxMergedBtc || 500));
+        document.getElementById('fp-mark').addEventListener('change', function () { chart._setMarkMode(this.value); });
+       
 
     // Minimum flow value: filters every single output before anything is merged.
     flowSlider.addEventListener('input', function() {
         document.getElementById('fp-btc-label').textContent = `${(+this.value).toFixed(0)} BTC`;
         fpApply(false);
     });
-    // Minimum merged-edge volume: hides faint blue edges only.
-    edgeSlider.addEventListener('input', function() {
-        chart.btcThreshold = +this.value;
-        document.getElementById('fp-edge-label').textContent = `${(+this.value).toFixed(0)} BTC`;
-        chart.update(0, false);
-    });
-    chart.onModeChange = (single) => {
-    edgeSlider.disabled = single;
-    document.getElementById('fp-kind').disabled = single;
-    const g = document.getElementById('fp-edge-section');
-    g.style.opacity = single ? 0.45 : 1;
-    g.title = single ? 'TAF view only. Not used in the ITOF view.' : 'TAF view only';
+    
+ chart.onModeChange = (single) => {
+    document.getElementById('fp-mark').disabled = single;
+    const s = document.getElementById('fp-mark-section');
+    s.style.opacity = single ? 0.45 : 1;
+    s.title = single ? 'Available only when edges are merged.' : '';
 };
     chart.onModeChange(chart.singleMode);
     document.getElementById('fp-hl-btn').addEventListener('click', () => fpAddTag('hl'));
@@ -474,7 +478,6 @@ exploreContainer.html(`
     });
     longSel.addEventListener('change', function () { chart._setLongMode(this.value); });
         chart._updateHiddenChip();
-        document.getElementById('fp-kind').addEventListener('change', function () { chart._setMinEdgeFlows(+this.value); });
     const peelBtn  = document.getElementById('fp-detect-peel-btn');
 
 
@@ -484,7 +487,9 @@ exploreContainer.html(`
         const retainPct = Math.min(1, Math.max(0.5, (+document.getElementById('fp-peel-retain-input').value || 90) / 100));
         const minLen     = Math.max(2, +document.getElementById('fp-peel-minlen-input').value || 5);
         const requireDecreasing = document.getElementById('fp-peel-decreasing').checked;
-const results = chart._detectPeelingChainCandidates(minLen, retainPct, requireDecreasing);
+const type = document.getElementById('fp-peel-type').value;
+const results = chart._detectPeelingChainCandidates(minLen, retainPct, requireDecreasing)
+                     .filter(c => type === 'all' || c.changeType === type);
 chart._showSuspects(results);
     });
     // Auto-apply on every threshold control — no separate "Apply" button.

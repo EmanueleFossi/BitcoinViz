@@ -56,6 +56,7 @@ class ExplorativeFlowChart {
         this.boxes = [];
         this.contentW = 0;
        this._longMode = 'hide';        // 'show' | 'hide'
+       this._mergeEdges = false;   // false = every flow is its own edge, true = merge edges between the same two visible nodes
 this._longSlots = null;         // an edge is "long" above this many NODES (set from the screen at start)
         this._arcHeightMap = new Map();
         // Chain panel sparkline state
@@ -270,8 +271,9 @@ let valid = candidates.filter(o =>
                         // Accept the latest earlier output on this address that is bigger, but by at most 2%.
 const near = valid.filter(o => o.btc > tx.btc_in && tx.btc_in >= o.btc * 0.98
                             && o.time < tx.time && !spentExactly(inAddr, o));
-                        valid = near.length === 1 ? near : [];   // two or more candidates = no link
-                        bridged = near.length === 1;
+                         const BRIDGE_ON = true;   // change to false to test without bridging
+valid = (BRIDGE_ON && near.length === 1) ? near : [];
+bridged = valid.length === 1;
                     }
                 }
                 if (!valid.length) return;
@@ -578,7 +580,15 @@ inAddr: inAddr, uncertain: origin.uncertain, bridged: !!origin.bridged, gapBtc: 
         // the "Amounts per hop" button lives in the legend footer (see explorativeFlow.js)
         this.sparkBtn = d3.select("#ef-spark-btn").on("click", () => self._toggleSparkPanel());
 
-
+this.mergeBtn = bar.append("button")
+    .attr("class", "ef-merge")
+    .attr("title", "Merge all flows between the same two windows into one edge (reduces clutter)")
+    .style("font-size", "10px").style("padding", "3px 9px")
+    .style("border", "1px solid #2F9E44").style("border-radius", "5px")
+    .style("background", "#ffffff").style("color", "#2F9E44").style("cursor", "pointer")
+    .style("white-space", "nowrap")
+    .text("Merge edges")
+    .on("click", () => self._toggleMerge());
 this.expandBtn = bar.append("button")
     .attr("class", "ef-expand")
     .text("Expand all")
@@ -635,6 +645,7 @@ this.expandBtn = bar.append("button")
         this.gHitTop = this.svgEl.append("g").attr("clip-path", "url(#ef-clip-top)");
         this.gHitBot = this.svgEl.append("g").attr("clip-path", "url(#ef-clip-bot)");
 this.gChainHit = this.svgEl.append("g");   // hover/click paths of a highlighted chain: above the normal edges
+this.gMark = this.svgEl.append("g").style("pointer-events", "none");
         this.gNode = this.svgEl.append("g").attr("clip-path", "url(#ef-clip-nodes)");
                 this.gBoxLabel = this.svgEl.append("g");
         this._buildOverview();
@@ -675,9 +686,8 @@ self._suppressDeselect = false;
         const maxAgg = dayTotals.size ? d3.max([...dayTotals.values()]) : 0;
         const btcMin = Math.max(minFlow, 0.0001);
         const btcMax = Math.max(maxFlow, maxAgg, btcMin * 2);
-                this.maxFlowBtc = maxFlow;      // used by the sidebar to size the sliders
-        this.maxMergedBtc = maxAgg;
-
+             this.maxFlowBtc = maxFlow;      // used by the sidebar to size the sliders
+this.maxMergedBtc = maxAgg;     // used by the Min edge volume slider
         // Same BTC brackets for both; blue family = merged edges, teal family = single TX output.
                const DAY_BUCKET_COLORS = ["#9CC9F0", "#5B9BD5", "#265F91", "#0B2C4D"];
         const HOUR_BUCKET_COLORS = ["#A3D995", "#6CC25A", "#2F9E44", "#0F5A24"];
@@ -797,9 +807,8 @@ this.zoom = d3.zoom().clickDistance(4)
 
                 // One edge style at a time: individual (green) edges only when EVERY node is an hour
         // node; in any mixed state all edges are merged (blue).
-const singleMode = this._chainOverlayActive() || this.filteredLevels.hour.length > 0 && this.filteredLevels.hour.every(f =>
-                this._nodeFor(f.time_from).level === 'hour' && this._nodeFor(f.time_to).level === 'hour');
-        this.singleMode = singleMode;
+const singleMode = this._chainOverlayActive() || !this._mergeEdges;
+this.singleMode = singleMode;
 
         this.filteredLevels.hour.forEach(f => {
             const from = this._nodeFor(f.time_from);
@@ -872,8 +881,9 @@ edges.forEach(e => {
             this._focusRel = null;
         }
 
+        this._rankEdges = edges;   // all edges of this view (before long-edge hiding), used for the Top 5 ranking
         edges = this._applyLongEdges(edges, nodes);
-        this._assignSides(edges);
+                this._assignSides(edges);
                 this._smax = Math.min(this.svgW * 1.5,
             Math.max(1, d3.max(edges, e => Math.abs(e.toNode.bx - e.fromNode.bx)) || 1));
         this._assignHeights(edges, nodes);
@@ -1014,6 +1024,7 @@ edges.forEach(e => {
         this._renderBoxes(ms);
         this._renderNodes(nodes, ms);
         this._renderOverlay(ms);
+        this._renderPeelMarks();
         this._updateFocusChip();
         this._updateHiddenChip();
         this._renderOverview();
@@ -1022,9 +1033,19 @@ edges.forEach(e => {
                        const lv = ['day', '12h', '6h', 'hour'].filter(k => nodes.some(n => n.level === k));
 const NAMES = { day: '24-hour', '12h': '12-hour', '6h': '6-hour', hour: '1-hour' };
         const windows = lv.length === 1 ? `${NAMES[lv[0]]} windows` : 'mixed windows';
-               this.hintBar.html(
-`${this.singleMode ? 'ITOF Graph View' : 'TAF-Graph View'}` +
+              this.hintBar.html(
+`${this.singleMode ? 'Individual edges' : 'Merged edges · 2+ flows in green'}` +
 `<span style="font-size:12px;color:#555;margin-left:8px">· ${windows}</span>`);
+
+const ovActive = this._chainOverlayActive();
+const pressed = this._mergeEdges && !ovActive;
+this.mergeBtn
+    .text(this._mergeEdges ? "Unmerge edges" : "Merge edges")
+    .property("disabled", ovActive)
+    .style("opacity", ovActive ? 0.45 : 1)
+    .style("background", pressed ? "#2F9E44" : "#ffffff")
+    .style("color", pressed ? "#ffffff" : "#2F9E44");
+
                 this.resetBtn.style("display", (this.expanded.size || this.overrides.size || this.autoLevel) ? null : "none");
                 this.expandBtn.style("display",
     (this.autoLevel < 3 || [...this.overrides.values()].some(v => v === false)) ? null : "none");
@@ -1276,6 +1297,12 @@ _setMinEdgeFlows(v) {
     if (this.tip) this.tip.style("opacity", 0);
     this._refresh(true);
 }
+_setMinDepth(v) {
+    this._minDepth = v;
+    this._dropSelectionKeepView();
+    if (this.tip) this.tip.style("opacity", 0);
+    this._refresh(true);
+}
 // ── Long edges: show or hide ──
     _setLongMode(mode, slots) {
         if (mode) this._longMode = mode;
@@ -1427,7 +1454,7 @@ this._dropSelectionKeepView();
 txt = `${n} / ${E} hidden`;
             tip = this.singleMode
                 ? `${n} of ${E} edges are hidden (in this view each edge is one flow).`
-                : `${n} of ${E} TAF edges are hidden. They hold ${f} of ${T} flows.`;
+                : `${n} of ${E} merged edges are hidden. They hold ${f} of ${T} flows.`;
         }
     }
     d3.select("#fp-long-count").text(txt).attr("title", tip);
@@ -1500,21 +1527,24 @@ d._apex = [(xa + xb) / 2, (ya + yb) / 2 - side * h];   // top of the arch (used 
 
     _renderArcLayer(className, arcs, opacity, ms) {
         const self = this, axisY = this._axisY;
-        const scale = className === "day-arcs" ? this.dayColorScale : this.hourColorScale;
+// green only for merged edges that hold 2+ flows; everything else is blue
+const scaleOf = d => (d.isAggregated && d.count >= 2) ? this.hourColorScale : this.dayColorScale;
         const arcsTop = arcs.filter(a => (a._side || 1) === 1).sort((a, b) => a.btc - b.btc);
 const arcsBot = arcs.filter(a => (a._side || 1) === -1).sort((a, b) => a.btc - b.btc);
         const pathOf = d => self._edgePath(d, d.fromNode.px, d.toNode.px, true);
-                const rangeCols = scale.range();
        
         // In focus mode every remaining edge touches the focused node, so it is drawn pink.
-        const strokeOf = d => self._getArcHlColor(d) ||
-            (self._focusKey && (d.fromNode.key === self._focusKey || d.toNode.key === self._focusKey) ? "#EC4899" : scale(d.btc));
+        const isPeelEdge = d => d.isAggregated && self._peelHopKeys && self._peelHopKeys.size &&
+            d.addresses.some(a => self._peelHopKeys.has(`${a.hashFrom}|${a.hashTo}|${a.addr}`));
+        const strokeOf = d => self._getArcHlColor(d)  ||
+                    (self._focusKey && (d.fromNode.key === self._focusKey || d.toNode.key === self._focusKey) ? "#EC4899" : scaleOf(d)(d.btc));
 
-        const baseOp = d => opacity * (0.85 + 0.15 * rangeCols.indexOf(scale(d.btc)) / (rangeCols.length - 1));                const opOf = d => this.selectedArc ? 0.05 : baseOp(d);
-        const nEdges = this.visibleEdges.length;
+const baseOp = d => { const sc = scaleOf(d), r = sc.range(); return opacity * (0.85 + 0.15 * r.indexOf(sc(d.btc)) / (r.length - 1)); };
+ const opOf = d => this.selectedArc ? 0.05 : baseOp(d);       
+const nEdges = this.visibleEdges.length;
                        const baseW = nEdges > 250 ? 1.4 : nEdges > 100 ? 1.9 : 2.5;
-        const widthOf = d => self._getArcHlColor(d) ? 4 : baseW;
-                        const renderGroup = (gVis, gHit, subArcs, subClass) => {
+const widthOf = d => self._getArcHlColor(d) ? 4 : baseW;
+                                const renderGroup = (gVis, gHit, subArcs, subClass) => {
             const selVis = gVis.selectAll(`path.${className}.${subClass}`).data(subArcs, d => d.key);
             if (ms) selVis.exit().transition().duration(ms * 0.6).attr("opacity", 0).remove();
             else selVis.exit().remove();
@@ -1532,7 +1562,7 @@ const arcsBot = arcs.filter(a => (a._side || 1) === -1).sort((a, b) => a.btc - b
 .attr("data-op", baseOp)
                 .attr("stroke", strokeOf)
                                                                 .attr("stroke-width", widthOf)
-                                .attr("stroke-dasharray", d => (d.isAggregated && d.count === 1) ? "5,3" : null)
+.attr("stroke-dasharray", null)
                                                 .attr("marker-end", nEdges > 120 ? null : "url(#ef-arrow)");
             if (ms) {
                 enterVis.attr("opacity", 0).transition().duration(ms).delay(ms * 0.5).attr("opacity", opOf);
@@ -1592,6 +1622,7 @@ self._moveTip(event);
 if (self._overlay && (self._overlay.kind === 'suspects' || self._overlay.kind === 'peel')) return;
                     // Merged (blue) edge: highlight just this edge and list its flows.
                                         if (!d.isSingle) {
+                                                                   
                         self._suppressDeselect = true;
                         self.selectedArc = d;
                         self._highlightSingleArc(d);
@@ -1687,11 +1718,10 @@ const MIN_LABEL = { day: 34, '12h': 32, '6h': 30, hour: 26 };
         }
 
         merged
-            .on("click", function (event, d) {
+                      .on("click", function (event, d) {
                 event.stopPropagation();
-                if (d.level === 'hour' || event.shiftKey) self._focusOnNode(d);
-                else self._expandNode(d);
-                        })
+                if (d.level !== 'hour') self._expandNode(d);   // hour nodes: nothing to open
+            })
             .on("mouseenter", function (event, d) {
                 if (d.level !== 'hour') d3.select(this).select(".ef-dot").attr("r", self.NODE_R + 2);
                                 self._showNodeTip(event, d);
@@ -1833,7 +1863,7 @@ const curKey = ov.kind !== 'suspects' ? (this._hopKey || null) : (this._suspectV
         if (ms) sel.transition().duration(ms).attr("d", pathOf);
         else { sel.interrupt(); sel.attr("d", pathOf).attr("opacity", 1); }
         enter.merge(sel).attr("stroke", ov.color).attr("stroke-width", finalW)
-            .attr("stroke-dasharray", d => (d.isAggregated && d.count === 1) ? "5,3" : null);
+.attr("stroke-dasharray", null);
         // invisible 16px hover paths, so even a 1.5px edge is easy to hover
         const hitData = ov.kind === 'single' ? [] : drawArcs;
         const hsel = this.gChainHit.selectAll("path.chain-hit").data(hitData, d => d.key);
@@ -1937,18 +1967,56 @@ const hopsOf = d => { const s = self._suspectByKey.get(d.key); return `#${s.idx 
             .attr("cx", d => d.px).attr("cy", this._axisY)
             .attr("r", this.NODE_R + 4).attr("stroke", ov.color);
     }
-    _drawLegend() {
+        _setMarkMode(v) { this._markMode = v; this._draw(false); }
+    _renderPeelMarks() {
+        const mode = this._markMode || 'off';
+const COL = { btc: '#2563EB', hops: '#2563EB' };
+const WHY = { btc: 'largest single flow', hops: 'longest chain after it' };
+        let data = [];
+        if (mode !== 'off' && !this._overlay && !this.singleMode) {
+           const score = e => mode === 'btc' ? (d3.max(e.addresses, f => f.btc) || 0)
+    : (d3.max(e.addresses, f => f.hops) || 0);
+                                data = (this._rankEdges || this.visibleEdges).filter(e => e.isAggregated)
+                .map(e => ({ e, s: score(e) })).filter(x => x.s > 0)
+                .sort((a, b) => b.s - a.s).slice(0, 5)
+                .map((x, i) => ({ e: x.e, rank: i + 1, s: x.s, key: x.e.key }))
+                .filter(x => x.e._apex && !isNaN(x.e._x1) &&
+                    x.e.fromNode.px >= 0 && x.e.toNode.px <= this.svgW &&
+                    x.e._apex[0] > 12 && x.e._apex[0] < this.svgW - 12);
+                        }
+        const self = this;
+        const sel = this.gMark.selectAll("g.edge-mark").data(data, d => d.key);
+        sel.exit().remove();
+        const enter = sel.enter().append("g").attr("class", "edge-mark").style("pointer-events", "all").style("cursor", "pointer");
+        enter.append("circle").attr("r", 8).attr("stroke", "#fff").attr("stroke-width", 1.5);
+        enter.append("text").attr("text-anchor", "middle").attr("y", 3).attr("font-size", 9)
+            .attr("font-weight", 700).attr("fill", "#fff");
+        enter.append("title");
+        enter.merge(sel)
+            .attr("transform", d => `translate(${d.e._apex[0]},${d.e._apex[1]})`)
+            .on("mouseenter", (ev, d) => self._showTooltip(ev, d.e))
+            .on("mousemove", ev => self._moveTip(ev))
+            .on("mouseleave", () => self.tip.style("opacity", 0))
+            .each(function (d) {
+                const g = d3.select(this);
+                g.select("circle").attr("fill", COL[mode]);
+                g.select("text").text(d.rank);
+                g.select("title").text(`#${d.rank} by ${WHY[mode]}`);
+            });
+    }
+
+        _drawLegend() {
         this.svgEl.selectAll(".ef-legend").remove();
         const slot = d3.select("#ef-amount-slot");
         if (slot.empty()) return;
         const edges = this.visibleEdges;
         if (!edges.length) { slot.html(''); this._legendKey = null; return; }
-        const hasAgg = edges.some(e => !e.isSingle);
-        const hasSingle = edges.some(e => e.isSingle);
+        const hasGreen = edges.some(e => e.isAggregated && e.count >= 2);
+const hasBlue = edges.some(e => !(e.isAggregated && e.count >= 2));
         const wc = this._wcInfo;
 
         // only rewrite when something changed (this runs on every pan frame)
-        const key = wc ? `t|${wc.lo}|${wc.hi}|${wc.color}` : `s|${hasAgg}|${hasSingle}`;
+const key = wc ? `t|${wc.lo}|${wc.hi}|${wc.color}` : `s|${hasGreen}|${hasBlue}`;
         if (this._legendKey === key) return;
         this._legendKey = key;
 
@@ -1975,8 +2043,8 @@ const hopsOf = d => { const s = self._suspectByKey.get(d.key); return `#${s.idx 
         const fmtR = v => v >= 100 ? Math.round(v).toLocaleString('en-US') : fmtB(v);
         const swatches = blue.map((c, i) => {
             const lo = bEdges[i], hi = bEdges[i + 1];
-            const bg = (hasAgg && hasSingle) ? `linear-gradient(135deg, ${c} 50%, ${teal[i]} 50%)`
-                : (hasSingle ? teal[i] : c);
+            const bg = (hasGreen && hasBlue) ? `linear-gradient(135deg, ${c} 50%, ${teal[i]} 50%)` : (hasGreen ? teal[i] : c);
+
             const label = i === blue.length - 1 ? `>${fmtR(lo)}` : `${fmtR(lo)}–${fmtR(hi)}`;
             return `<span title="${fmtR(lo)} to ${i === blue.length - 1 ? '∞' : fmtR(hi)} BTC" style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap"><span style="width:10px;height:10px;border-radius:2px;background:${bg};display:inline-block"></span>${label}</span>`;
         }).join('');
@@ -2064,6 +2132,12 @@ this._renderSparkPanel();
         this._applyAutoLevel(0);
         this._refresh(true, { reset: true });
     }
+    _toggleMerge() {
+    this._mergeEdges = !this._mergeEdges;
+    this._dropSelectionKeepView();
+    if (this.tip) this.tip.style("opacity", 0);
+    this._refresh(true);
+}
     _expandAll() {
     this._focusKey = null;
     this._dropSelectionState();
@@ -2105,24 +2179,16 @@ if (!ov.keepView) this._alignLeft(ov.focusArc || ov.arcs[0]);
         }
         // Chains are built from single address links, so before detection the whole view switches to
     // the 1-hour single TX output (green) view. The notice explains it and offers a way back.
-    prepareSingleView() {
-        if (this.singleMode) return false;
-        const saved = { overrides: new Map(this.overrides), autoLevel: this.autoLevel, zoomT: this.zoomT };
-        this._dropSelectionState();
-        this.overrides.clear();
-        this._applyAutoLevel(3);
-        this._refresh(true, { reset: true });
-        this._showViewNotice(
-'Chains are built from single address links, so the view switched to the ITOF Graph View (1-hour windows, green).',            () => {
-                this.overrides = saved.overrides;
-                this._applyAutoLevel(saved.autoLevel);
-                this.zoomT = saved.zoomT;
-                this._dropSelectionState();
-                this._refresh(true);
-            });
-        return true;
-    }
-
+prepareSingleView() {
+    if (this.singleMode) return false;
+    this._dropSelectionState();
+    this._mergeEdges = false;
+    this._refresh(true);
+    this._showViewNotice(
+        'Chains are built from single outputs, so edges switched to Individual (not merged).',
+        () => { this._mergeEdges = true; this._dropSelectionState(); this._refresh(true); });
+    return true;
+}
     _showViewNotice(text, onBack) {
         this.container.selectAll(".ef-notice").remove();
         const box = this.container.append("div").attr("class", "ef-notice")
@@ -2193,14 +2259,18 @@ this._chainHops = onMain ? chainHops : [];
     // Detect button: mark the FIRST edge of the longest suspicious chains.
     _showSuspects(cands) {
         if (this._peelPanel) this._peelPanel.style("display", "none");
-        this._dropSelectionState();
+       this._dropSelectionKeepView();
         const list = (cands || []).map(c => {
             const runArcs = c.arcs
                 .map(h => this.hourArcByKey.get(`${h.hashFrom}|${h.hashTo}|${h.addr}`))
                 .filter(Boolean);
             return { cand: c, runArcs, startArc: runArcs[0] || null };
         }).filter(s => s.startArc);            // chains with no drawable edge are left out
+                this._peelHopKeys = new Set();
+        list.forEach(s => s.cand.arcs.forEach(h => this._peelHopKeys.add(`${h.hashFrom}|${h.hashTo}|${h.addr}`)));
         if (!list.length) {
+                    this._refresh(true);            // add: redraw, remove faded edges
+
             this._showViewNotice('No suspicious chains found with these settings. Try fewer hops or a lower retain %.', null);
             return;
         }
@@ -2311,9 +2381,10 @@ this._hiddenHops = c.arcs.map((h, i) => ({ ...h, n: i + 1 }))
     }
 
 
-    _clearSuspects() {
+       _clearSuspects() {
         if (this._peelPanel) this._peelPanel.style("display", "none");
         if (this.tip) this.tip.style("opacity", 0);
+        this._peelHopKeys = null;      // remove the amber dots
         this._clearSelection();
     }
 
@@ -2556,14 +2627,18 @@ row2.append("span").text("Sparkline chart");
         const maxF = d3.max(flows, f => f.btc), minF = d3.min(flows, f => f.btc);
         const sh = a => a && a.length > 18 ? a.slice(0, 8) + '…' + a.slice(-6) : (a || '—');
         const fT = d3.utcFormat("%d %b %Y, %H:%M");
-        const dominantFlow = flags.dominant ? flags.dominant.flow : null;
+        const dominantFlow = null;
         const keyOf = f => f.hashTo + '|' + f.addr;
         const selfSet = new Set(flags.selfLoops.map(keyOf));
         const topSet = new Set(flags.globalOutliers.map(keyOf));
         const repSet = new Set(flags.repeatedAddrFlows.map(keyOf));
         const score = f => (dominantFlow === f ? 3 : 0) + (selfSet.has(keyOf(f)) ? 2 : 0) +
                            (topSet.has(keyOf(f)) ? 2 : 0) + (repSet.has(keyOf(f)) ? 1 : 0);
-        const sorted = [...flows].sort((a, b) => score(b) - score(a) || b.btc - a.btc);
+const mm = this._markMode;
+const sorted = [...flows].sort((a, b) =>
+    mm === 'hops' ? (b.hops - a.hops || b.btc - a.btc)
+  : mm === 'btc'  ? (b.btc - a.btc)
+  : (score(b) - score(a) || b.btc - a.btc));
 
         const badge = (t, c) => `<span style="background:${c}14;border:1px solid ${c}55;color:${c};padding:0 5px;border-radius:3px;font-size:8px">${t}</span>`;
         const copyBtn = val => `<button class="ef-copy-btn" data-copy="${val.replace(/"/g, '&quot;')}"
@@ -2575,14 +2650,15 @@ row2.append("span").text("Sparkline chart");
             const mo = tx && tx.outputs.length ? tx.outputs.reduce((a, b) => b.btc > a.btc ? b : a) : null;
             const out = mo ? mo.addr : '—';
             const k = keyOf(f), b = [];
-            if (dominantFlow === f) b.push(badge('dominant', '#6366F1'));
             if (selfSet.has(k)) b.push(badge('self-loop', '#A855F7'));
             if (topSet.has(k)) b.push(badge('top 1%', '#EF4444'));
             if (repSet.has(k)) b.push(badge('repeated', '#06B6D4'));
             return `<div style="font-family:monospace;padding:6px;border:1px solid rgba(0,0,0,0.08);border-radius:5px;background:#fafafa;margin-bottom:5px;font-size:9px">
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:3px">
                     <b style="color:#F7931A;font-size:10px">₿${f.btc.toFixed(4)}</b>
-                    <span style="display:flex;gap:3px;flex-wrap:wrap">${b.join('')}</span>
+                    <button class="ef-trace-btn" data-key="${f.hashFrom}|${f.hashTo}|${f.addr}" title="Show this flow's chain in the individual view"
+                        style="font-size:8px;padding:0 5px;border:1px solid #EC4899;color:#EC4899;background:transparent;border-radius:3px;cursor:pointer">Trace chain · ${f.hops} more hops</button>
+                                            <span style="display:flex;gap:3px;flex-wrap:wrap">${b.join('')}</span>
                 </div>
                 <div style="color:#888;margin-bottom:3px">${f.timeTo ? fT(f.timeTo) + ' UTC' : '—'}</div>
                 <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px"><span title="${f.hashTo}" style="flex:1;min-width:0">TX: ${sh(f.hashTo)}</span>${copyBtn(f.hashTo)}</div>
@@ -2593,7 +2669,6 @@ row2.append("span").text("Sparkline chart");
 
         
 const chips = [];
-if (flags.dominant) chips.push(badge(`dominant ${(flags.dominant.pct * 100).toFixed(0)}%`, '#6366F1'));
 if (flags.selfLoops.length) chips.push(badge(`${flags.selfLoops.length} self-loop`, '#A855F7'));
 if (flags.globalOutliers.length) chips.push(badge(`${flags.globalOutliers.length} top 1%`, '#EF4444'));
 if (flags.repeatedAddrFlows.length) chips.push(badge('repeated addr', '#06B6D4'));
@@ -2606,6 +2681,7 @@ if (flags.repeatedAddrFlows.length) chips.push(badge('repeated addr', '#06B6D4')
     ${flows.length > 1 ? `<div style="font-size:9px;margin-bottom:6px">${flows.length} flows · largest <b>₿${maxF.toFixed(4)}</b> · smallest <b>₿${minF.toFixed(4)}</b></div>` : ''}
     ${matched ? `<div style="margin-bottom:6px;padding:3px 6px;background:#8B5CF614;border:1px solid #8B5CF655;border-radius:4px;font-size:9px">Searched address: ₿ ${matched.btc.toFixed(4)} (${matched.count} of ${arc.count})</div>` : ''}
     ${chips.length ? `<div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px">${chips.join('')}</div>` : ''}
+   <div style="font-size:9px;color:#92610a;margin-bottom:6px">To follow a chain, press "Trace chain" on a flow, or unmerge edges.</div>
     ${rows}`);
         box.selectAll(".ef-copy-btn").on("click", function () {
             const val = this.getAttribute("data-copy");
@@ -2613,6 +2689,10 @@ if (flags.repeatedAddrFlows.length) chips.push(badge('repeated addr', '#06B6D4')
                 this.innerHTML = ic('check', 10);
                 setTimeout(() => { this.innerHTML = ic('copy', 10); }, 1200);
             });
+        });
+                box.selectAll(".ef-trace-btn").on("click", function () {
+            const arc = self.hourArcByKey.get(this.getAttribute("data-key"));
+            if (arc) { self.selectedArc = arc; self._highlightChain(arc); }
         });
     }
 
@@ -2755,9 +2835,9 @@ const wantX = this.margin.left + 30;   // small number = closer to the left edge
     }
 
     _showNodeTip(event, n) {
-        const hint = n.level === 'hour'
-            ? 'Click to focus on this window’s edges'
-            : `Click to expand into ${n.level === 'day' ? '12-hour windows' : n.level === '12h' ? '6-hour windows' : 'hours'} · Shift+click to focus`;
+                const hint = n.level === 'hour'
+            ? 'Smallest window'
+            : `Click to expand into ${n.level === 'day' ? '12-hour windows' : n.level === '12h' ? '6-hour windows' : 'hours'}`;
         this.tip.style("opacity", 1)
             .style("left", (event.clientX + 15) + "px")
             .style("top", (event.clientY - 15) + "px")
@@ -2781,11 +2861,39 @@ const wantX = this.margin.left + 30;   // small number = closer to the left edge
         return `
             <div style="font-weight:700;color:${hlColor || '#EC4899'};margin-bottom:5px">${d.count} flow${d.count === 1 ? '' : 's'} · ₿ ${d.btc.toFixed(4)}</div>
             <div style="margin-bottom:2px;font-size:10px;color:#555">${this._nodeLabelFull(d.fromNode)} → ${this._nodeLabelFull(d.toNode)}</div>
-            <div style="margin-bottom:2px;font-size:10px;color:#555">Largest single flow: <b style="color:#1a1a1a">₿ ${largest.toFixed(4)}</b></div>
-            ${tags.length ? `<div style="font-size:10px;color:#92610a;margin-bottom:2px">${tags.join(' · ')}</div>` : ''}
-            <div style="font-size:9px;color:#888">Click to select · "Details" in the left panel lists the flows</div>`;
+            ${this._flowStripHtml(d)}
+<div style="font-size:9px;color:#888">Click to select · "Details" lists the flows</div>
+<div style="font-size:9px;color:#92610a;margin-top:2px">Merged view: chains are not traced here. Use "Trace chain" in Details, or Unmerge.</div>`;
     }
-    _chainLabel(d, pos) {
+        _flowStripHtml(d) {
+        const fl = (d.addresses || []).slice().sort((a, b) => b.btc - a.btc);
+        if (!fl.length) return '';
+        const flags = this._computeArcOutlierFlags(d);
+        const keyOf = f => f.hashTo + '|' + f.addr;
+        const selfS = new Set(flags.selfLoops.map(keyOf)), topS = new Set(flags.globalOutliers.map(keyOf));
+const col = f => topS.has(keyOf(f)) ? '#EF4444' : '#5B9BD5';
+        const total = d.btc || 1, mode = this._markMode || 'off';
+        const deepF = fl.reduce((a, b) => b.hops > a.hops ? b : a, fl[0]);
+const focus = mode === 'hops' ? deepF : mode === 'btc' ? fl[0] : null;
+        const sh = a => a && a.length > 14 ? a.slice(0, 6) + '…' + a.slice(-4) : (a || '—');
+        const bars = fl.slice(0, 12).map(f => `<div style="width:${Math.max(3, f.btc / total * 100)}%;background:${col(f)};height:10px;` +
+            `${f === focus ? 'outline:2px solid #1e293b;outline-offset:-2px;' : ''}"></div>`).join('');
+             const chip = (c, t) => `<span><span style="color:${c}">●</span> ${t}</span>`;
+        const hopTxt = f => f.hops > 0 ? `${f.hops} more hops` : 'no more hops';
+        const parts = [];
+        if (deepF.hops === 0) {
+            parts.push(chip('#5B9BD5', `Largest flow: ₿ ${fl[0].btc.toFixed(4)} · no more hops`));
+        } else if (deepF === fl[0]) {
+            parts.push(chip('#5B9BD5', `Largest flow and longest chain: ₿ ${fl[0].btc.toFixed(4)} · ${hopTxt(fl[0])}`));
+        } else {
+            parts.push(chip('#5B9BD5', `Largest flow: ₿ ${fl[0].btc.toFixed(4)} · ${hopTxt(fl[0])}`));
+            parts.push(chip('#5B9BD5', `Longest chain: ₿ ${deepF.btc.toFixed(4)} · ${hopTxt(deepF)}`));
+        }
+        if (flags.globalOutliers.length) parts.push(chip('#EF4444', `${flags.globalOutliers.length} top 1%`));
+        return `<div style="display:flex;gap:1px;margin:4px 0;border-radius:3px;overflow:hidden;min-width:160px">${bars}</div>
+            <div style="font-size:9px;color:#444;display:flex;flex-direction:column;gap:2px">${parts.join('')}</div>`;
+    }
+                _chainLabel(d, pos) {
         const hops = this._hopsForSpark();
         if (hops) {
             const i = hops.findIndex(h => h.hashFrom === d.hashFrom && h.hashTo === d.hashTo);
@@ -2982,7 +3090,7 @@ if ((arc && arc.isAggregated) ? !this._openMerged : !this._chainPanelShowSparkli
             }
 
             const shortAddr = a => a.length > 18 ? a.slice(0, 8) + '…' + a.slice(-6) : a;
-            const dominantFlow = flags.dominant ? flags.dominant.flow : null;
+            const dominantFlow =  null;
             const selfLoopSet = new Set(flags.selfLoops.map(f => f.hashTo + '|' + f.addr));
             const globalOutlierSet = new Set(flags.globalOutliers.map(f => f.hashTo + '|' + f.addr));
             const repeatedSet = new Set(flags.repeatedAddrFlows.map(f => f.hashTo + '|' + f.addr));
@@ -3318,6 +3426,7 @@ if ((arc && arc.isAggregated) ? !this._openMerged : !this._chainPanelShowSparkli
         maxAddrTx = Infinity, minAddrTx = 0, animate = true
     }) {
         this.hlColorMap = hlColorMap;
+                this._peelHopKeys = null;   // filters changed: old suspicious marks are stale
         this.activeQueries = queries;
 
         this.activeFilters = { queries, excludes, minB, maxB, minGapH, maxGapH, minHops, maxAddrTx, minAddrTx };
@@ -3404,12 +3513,16 @@ this._refresh(animate);
                     const runLen = i - start;
                     if (runLen >= minLength) {
                         const run = seq.slice(start, i);
+                        const sameN = run.filter(h => { const t = this.txMap.get(h.hashFrom); return t && t.in_addresses.includes(h.addr); }).length;
+const changeType = sameN === run.length ? 'same' : sameN === 0 ? 'new' : 'mixed';
                         candidates.push({
                             root, arcs: run,
                             startBtc: run[0].btc, endBtc: run[run.length - 1].btc,
                             length: run.length,
+                            changeType,
                             declinePct: run[0].btc ? (run[0].btc - run[run.length - 1].btc) / run[0].btc : 0,
-                            avgRetainPct: run.reduce((s, a) => s + a.retainPct, 0) / run.length
+                            avgRetainPct: run.reduce((s, a) => s + a.retainPct, 0) / run.length,
+                            sameShare: run.filter(h => { const t = this.txMap.get(h.hashFrom); return t && t.in_addresses.includes(h.addr); }).length / run.length,
                         });
                     }
                     runStart = i;
